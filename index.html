@@ -122,6 +122,19 @@ input[type=number]{width:5.2em;padding:6px 6px;text-align:right}
 #msg{margin:10px 0 0;font-size:.9rem;min-height:1.4em}
 #result{margin-top:12px;display:none}
 #result video{width:min(100%,260px);border-radius:18px;display:block}
+.fb textarea{font:inherit;color:var(--ink);background:var(--field);border:1.5px solid var(--line);border-radius:12px;padding:8px 10px;width:100%;min-height:4.6em;resize:vertical;margin-top:4px}
+.fb input[type=text]{margin-top:4px}
+.fb .nums{display:flex;gap:8px 14px;flex-wrap:wrap;align-items:center;margin-top:4px;font-size:.95rem}
+.fb .nums input{width:4.2em}
+.choices{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.choices label{position:relative}
+.choices input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+.choices span{display:inline-block;padding:7px 14px;border-radius:999px;background:var(--field);border:1.5px solid var(--line);font-size:.9rem}
+.choices input:checked+span{border-color:var(--coral);background:var(--card);font-weight:700}
+.choices input:focus-visible+span{outline:3px solid var(--focus);outline-offset:2px}
+.fbAuto{font-size:.8rem;color:var(--muted);background:var(--field);border-radius:12px;padding:8px 12px;margin:14px 0 0;white-space:pre-wrap}
+button.line{background:#06C755;color:#fff;border-color:transparent}
+#fbMsg{margin:10px 0 0;font-size:.9rem;min-height:1.4em}
 .kbd{background:var(--field);border:1px solid var(--line);border-radius:6px;padding:0 5px;font-size:.85em}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
 .srcVideo{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;left:-10px;top:0}
@@ -220,7 +233,37 @@ input[type=number]{width:5.2em;padding:6px 6px;text-align:right}
         <div id="result">
           <video id="resultVideo" controls playsinline></video>
           <p class="row" style="margin-top:10px"><button class="primary" id="saveBtn">保存する</button></p>
+          <p class="hint" style="margin-top:10px">使ってみた感想は、このページのいちばん下からLINEで送れます。</p>
         </div>
+      </section>
+
+      <section class="step fb" id="feedback">
+        <h2>使ってみた感想を送る</h2>
+        <p class="hint">質問は5つです。わかるところだけで大丈夫です。「LINEで送る」を押すと答えがひとつの文章にまとまるので、送り先にこのアプリを教えてくれた人を選んでください。</p>
+        <label class="field" for="fbKids">1. お子さんの年齢と人数</label>
+        <input type="text" id="fbKids" placeholder="例：4歳と2歳の2人">
+        <div class="field" style="margin-top:12px;font-size:.85rem;color:var(--muted)">2. 作った動画の本数</div>
+        <div class="nums">
+          <label>作った <input type="number" id="fbMade" min="0" inputmode="numeric"> 本</label>
+          <label>そのうちSNSやLINEに送った <input type="number" id="fbSent" min="0" inputmode="numeric"> 本</label>
+        </div>
+        <label class="field" for="fbHard">3. 迷ったところ・わかりにくかったところ</label>
+        <textarea id="fbHard" placeholder="例：字幕の枠がどこに出るのかわからなかった"></textarea>
+        <div class="field" style="margin-top:12px;font-size:.85rem;color:var(--muted)" id="fbFreqLbl">4. 月に何本くらい作りたいと思いましたか</div>
+        <div class="choices" role="radiogroup" aria-labelledby="fbFreqLbl">
+          <label><input type="radio" name="fbFreq" value="作らないと思う"><span>作らないと思う</span></label>
+          <label><input type="radio" name="fbFreq" value="1〜2本"><span>1〜2本</span></label>
+          <label><input type="radio" name="fbFreq" value="3〜4本"><span>3〜4本</span></label>
+          <label><input type="radio" name="fbFreq" value="5本以上"><span>5本以上</span></label>
+        </div>
+        <label class="field" for="fbWant">5. 欲しいキャラや機能</label>
+        <textarea id="fbWant" placeholder="例：恐竜のキャラ、誕生日の飾り"></textarea>
+        <p class="fbAuto" id="fbAuto"></p>
+        <div class="row" style="margin-top:14px">
+          <button class="line" id="fbLine">LINEで送る</button>
+          <button id="fbCopy">文章をコピー</button>
+        </div>
+        <p id="fbMsg" role="status"></p>
       </section>
     </div>
   </div>
@@ -614,7 +657,7 @@ async function buildWave(file){
     const fl = Math.round(buf.sampleRate * 0.02), nf = Math.ceil(ch.length / fl);
     const ev = new Float32Array(nf);
     for (let i=0;i<nf;i++){ let q = 0, c = 0; for (let j=i*fl; j<Math.min(ch.length,(i+1)*fl); j+=2){ q += ch[j]*ch[j]; c++; } ev[i] = c ? Math.sqrt(q/c) : 0; }
-    setEnvFrom(ev, fl / buf.sampleRate);
+    setEnvFrom(ev, fl / buf.sampleRate); bump('waveOk');
   } else {
     waveState = 'failed';
   }
@@ -660,9 +703,9 @@ async function scanAudio(){
       last = i;
     }
   }
-  if (last < 0 || ev.every(v => v === 0)){ waveState = 'failed'; drawWave(); return false; }
+  if (last < 0 || ev.every(v => v === 0)){ waveState = 'failed'; drawWave(); bump('waveFail'); return false; }
   for (let k=last+1;k<N;k++) ev[k] = ev[last];
-  setEnvFrom(ev, dt); drawWave();
+  setEnvFrom(ev, dt); drawWave(); bump('waveScan');
   return true;
 }
 
@@ -818,6 +861,7 @@ function wire(){
     if (video.src) URL.revokeObjectURL(video.src);
     video.src = URL.createObjectURL(f);
     $('fileName').textContent = f.name;
+    bump('lastType', f.type || (f.name.split('.').pop() || '').toLowerCase());
     hasMedia = false; $('trimBox').style.display = 'none'; buildWave(f);
     state.subs = []; state.beeps = []; renderLists();
     $('result').style.display = 'none'; msg('');
@@ -857,6 +901,68 @@ function wire(){
   $('exportBtn').onclick = exportVideo;
   $('cancelBtn').onclick = () => { cancelExport = true; video.pause(); if (recorder && recorder.state !== 'inactive') recorder.stop(); };
   $('saveBtn').onclick = () => lastBlob && saveBlob(lastBlob, lastExt);
+}
+
+/* ---------- feedback ---------- */
+// 作った本数などをこの端末だけに記録し、感想の文章に入れる（どこにも送らない）
+const STATS_KEY = 'koedake-stats';
+function loadStats(){
+  const d = {made:0, saved:0, waveOk:0, waveScan:0, waveFail:0, lastType:''};
+  try { return Object.assign(d, JSON.parse(localStorage.getItem(STATS_KEY)) || {}); } catch(e){ return d; }
+}
+function bump(key, val){
+  const st = loadStats();
+  if (val !== undefined) st[key] = val; else st[key]++;
+  try { localStorage.setItem(STATS_KEY, JSON.stringify(st)); } catch(e){}
+  if (key === 'made' && !$('fbMade').dataset.touched) $('fbMade').value = st.made;
+  fbAutoText();
+}
+function deviceName(){
+  const u = navigator.userAgent;
+  const dev = /iPhone/.test(u) ? 'iPhone' : /iPad/.test(u) || (/Macintosh/.test(u) && navigator.maxTouchPoints > 1) ? 'iPad'
+    : /Android/.test(u) ? 'Android' : /Windows/.test(u) ? 'Windows' : /Macintosh/.test(u) ? 'Mac' : 'その他';
+  const br = /Line\//.test(u) ? 'LINEアプリ内' : /Instagram/.test(u) ? 'Instagramアプリ内' : /CriOS|Chrome\//.test(u) && !/Edg/.test(u) ? 'Chrome'
+    : /Edg/.test(u) ? 'Edge' : /FxiOS|Firefox/.test(u) ? 'Firefox' : /Safari/.test(u) ? 'Safari' : 'その他';
+  return dev + '・' + br;
+}
+function fbAutoText(){
+  const st = loadStats();
+  const t = '端末：' + deviceName() + '\n'
+    + '声の読み込み：そのまま' + st.waveOk + '回／早送り' + st.waveScan + '回／失敗' + st.waveFail + '回'
+    + (st.lastType ? '\n最後の動画の形式：' + st.lastType : '');
+  $('fbAuto').textContent = '次の情報も一緒に送られます（動画や声は送られません）\n' + t;
+  return t;
+}
+function fbText(){
+  const v = id => $(id).value.trim();
+  const freq = document.querySelector('input[name=fbFreq]:checked');
+  const made = v('fbMade'), sent = v('fbSent');
+  return '【こえだけ 感想】\n'
+    + '1. 子ども：' + (v('fbKids') || '－') + '\n'
+    + '2. 作った：' + (made || '－') + '本（SNS・LINEに送った：' + (sent || '－') + '本）\n'
+    + '3. 迷ったところ：' + (v('fbHard') || '－') + '\n'
+    + '4. 月に作りたい本数：' + (freq ? freq.value : '－') + '\n'
+    + '5. 欲しいキャラ・機能：' + (v('fbWant') || '－') + '\n'
+    + '――\n' + fbAutoText();
+}
+function wireFeedback(){
+  const st = loadStats();
+  if (st.made) $('fbMade').value = st.made;
+  $('fbMade').addEventListener('input', () => { $('fbMade').dataset.touched = '1'; });
+  fbAutoText();
+  $('fbLine').onclick = () => {
+    location.href = 'https://line.me/R/share?text=' + encodeURIComponent(fbText());
+  };
+  $('fbCopy').onclick = async () => {
+    const t = fbText();
+    try { await navigator.clipboard.writeText(t); $('fbMsg').textContent = 'コピーしました。LINEやメールに貼りつけて送ってください。'; }
+    catch(e){
+      const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select();
+      let ok = false; try { ok = document.execCommand('copy'); } catch(_){}
+      ta.remove();
+      $('fbMsg').textContent = ok ? 'コピーしました。LINEやメールに貼りつけて送ってください。' : 'コピーできませんでした。「LINEで送る」を使ってください。';
+    }
+  };
 }
 
 /* ---------- export ---------- */
@@ -909,6 +1015,7 @@ async function exportVideo(){
   const type = mime.split(';')[0];
   lastBlob = new Blob(chunks, {type});
   lastExt = type.includes('mp4') ? 'mp4' : 'webm';
+  bump('made');
   const url = URL.createObjectURL(lastBlob);
   $('resultVideo').src = url;
   $('result').style.display = 'block';
@@ -950,7 +1057,7 @@ async function saveBlob(blob, ext){
 }
 
 /* ---------- start ---------- */
-buildCharas(); renderLists(); wire(); wireTrimmer();
+buildCharas(); renderLists(); wire(); wireTrimmer(); wireFeedback();
 cv.style.background = state.bg;
 if (document.fonts && document.fonts.load){ document.fonts.load(`700 40px "Zen Maru Gothic"`).catch(()=>{}); }
 requestAnimationFrame(frame);
