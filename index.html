@@ -169,7 +169,7 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
           <p class="hint">黄色い枠の両はしを指でつまんで動かし、使う部分を囲みます。枠の真ん中をつまむと、長さはそのまま位置だけ動かせます。波の山は声が大きいところです。</p>
           <div class="trimmer" id="trimmer">
             <canvas id="wave"></canvas>
-            <button type="button" id="waveLoad" class="waveLoad" style="display:none">タップして声の波形を表示</button>
+            <button type="button" id="waveLoad" class="waveLoad" style="display:none" disabled>声を読み取り中…</button>
             <div class="dim" id="dimL"></div><div class="dim" id="dimR"></div>
             <div class="ph" id="ph"></div>
             <div class="sel" id="sel">
@@ -496,7 +496,9 @@ function frame(ms){
     let s = 0; for (let i=0;i<tbuf.length;i++) s += tbuf[i]*tbuf[i];
     const rms = Math.sqrt(s/tbuf.length);
     target = Math.min(1, Math.max(0, (rms - 0.012) * 7));
+    if (!scanning && liveOn()) addLive(t, rms);
   }
+  if (liveDirty && waveState === 'live' && !scanning && ms - liveBuilt > 300){ buildLive(); drawWave(); }
   const inBeep = !scanning && !video.paused && state.beeps.some(b => t >= b.start && t < b.end);
   if (inBeep || scanning) target = 0;
   level += (target - level) * (target > level ? 0.55 : 0.22);
@@ -629,7 +631,34 @@ function setEnvFrom(ev, dt){
     out[i] = q; if (q > mx) mx = q;
   }
   if (mx > 0) for (let i=0;i<N;i++) out[i] = Math.pow(out[i]/mx, 0.7);
-  peaks = out; waveState = 'ok';
+  peaks = out;
+}
+/* 一括で読めない動画（iPhoneの.movなど）は、再生中に聞こえた音から少しずつ波形を作る */
+const LDT = 0.02;
+let liveAcc = null, liveCnt = null, liveDirty = false, liveBuilt = 0;
+function initLive(d){
+  if (!d || !isFinite(d)) { liveAcc = liveCnt = null; return; }
+  const N = Math.ceil(d/LDT); liveAcc = new Float32Array(N); liveCnt = new Uint16Array(N);
+}
+function liveOn(){ return liveAcc && (waveState === 'loading' || waveState === 'live'); }
+function addLive(t, rms){
+  const i = Math.floor(t/LDT); if (i < 0 || i >= liveAcc.length) return;
+  liveAcc[i] += rms; liveCnt[i]++; liveDirty = true;
+}
+function buildLive(){
+  const N = liveAcc.length, ev = new Float32Array(N); let last = -1;
+  for (let i=0;i<N;i++){
+    if (!liveCnt[i]) continue;
+    ev[i] = liveAcc[i]/liveCnt[i];
+    if (last >= 0 && i - last > 1 && i - last <= 8){ for (let k=last+1;k<i;k++) ev[k] = ev[last] + (ev[i]-ev[last])*(k-last)/(i-last); }
+    last = i;
+  }
+  setEnvFrom(ev, LDT); liveDirty = false; liveBuilt = performance.now();
+}
+function liveCoverage(t0, t1){
+  const i0 = Math.max(0, Math.floor(t0/LDT)), i1 = Math.min(liveCnt.length, Math.ceil(t1/LDT));
+  let got = 0; for (let i=i0;i<i1;i++){ if (liveCnt[i]) got++; else if (i > i0 && liveCnt[i-1]) got++; }
+  return i1 > i0 ? got/(i1-i0) : 0;
 }
 async function decodeAny(ab){
   const tries = [];
@@ -657,35 +686,35 @@ async function buildWave(file){
     const fl = Math.round(buf.sampleRate * 0.02), nf = Math.ceil(ch.length / fl);
     const ev = new Float32Array(nf);
     for (let i=0;i<nf;i++){ let q = 0, c = 0; for (let j=i*fl; j<Math.min(ch.length,(i+1)*fl); j+=2){ q += ch[j]*ch[j]; c++; } ev[i] = c ? Math.sqrt(q/c) : 0; }
-    setEnvFrom(ev, fl / buf.sampleRate); bump('waveOk');
+    setEnvFrom(ev, fl / buf.sampleRate); waveState = 'ok'; bump('waveOk');
   } else {
-    waveState = 'failed';
+    waveState = 'live'; bump('waveFail');
+    if (liveAcc && liveDirty) buildLive();
   }
   drawWave();
 }
 
-/* realtime fallback: play silently at high speed and listen */
-async function scanAudio(){
-  if (scanning || !hasMedia) return false;
-  const d = video.duration; if (!d || !isFinite(d)) return false;
+/* 字幕の自動検出で、まだ再生していない部分があるときだけ：音を消して4倍速で再生して聞き取る */
+async function scanAudio(t0, t1){
+  if (scanning || !hasMedia || !liveAcc) return false;
   ensureAudio(); if (actx.state === 'suspended') await actx.resume();
+  const prevState = waveState;
   scanning = true; waveState = 'scanning'; drawWave();
-  const dt = 0.02, N = Math.ceil(d/dt);
-  const acc = new Float32Array(N), cnt = new Uint16Array(N);
   const backT = video.currentTime;
   video.pause(); stopAt = null;
   outGain.gain.setValueAtTime(0, actx.currentTime);
-  if (video.currentTime > 0.01){ video.currentTime = 0; await once(video, 'seeked'); }
+  if (Math.abs(video.currentTime - t0) > 0.01){ video.currentTime = t0; await once(video, 'seeked'); }
   try { video.playbackRate = 4; } catch(e){ video.playbackRate = 2; }
-  try { await video.play(); } catch(e){ scanning = false; outGain.gain.setValueAtTime(1, actx.currentTime); video.playbackRate = 1; waveState = 'failed'; drawWave(); return false; }
-  await new Promise(res => {
+  let ok = true;
+  try { await video.play(); } catch(e){ ok = false; }
+  if (ok) await new Promise(res => {
     const tick = () => {
       const t = video.currentTime;
       analyser.getFloatTimeDomainData(tbuf);
       let q = 0; for (let i=0;i<tbuf.length;i++) q += tbuf[i]*tbuf[i];
-      const i = Math.min(N-1, Math.floor(t/dt)); acc[i] += Math.sqrt(q/tbuf.length); cnt[i]++;
-      $('waveLoad').textContent = '声を読み取り中… ' + Math.round(t/d*100) + '%';
-      if (video.ended || video.paused || t >= d - 0.05) return res();
+      addLive(t, Math.sqrt(q/tbuf.length));
+      $('waveLoad').textContent = '声を読み取り中… ' + Math.round(Math.min(1, (t-t0)/(t1-t0))*100) + '%';
+      if (video.ended || video.paused || t >= t1 - 0.02) return res();
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -694,19 +723,10 @@ async function scanAudio(){
   outGain.gain.setValueAtTime(1, actx.currentTime);
   video.currentTime = backT;
   scanning = false;
-  // fill gaps
-  const ev = new Float32Array(N); let last = -1;
-  for (let i=0;i<N;i++){
-    if (cnt[i]){
-      ev[i] = acc[i]/cnt[i];
-      if (last >= 0 && i - last > 1){ for (let k=last+1;k<i;k++) ev[k] = ev[last] + (ev[i]-ev[last])*(k-last)/(i-last); }
-      last = i;
-    }
-  }
-  if (last < 0 || ev.every(v => v === 0)){ waveState = 'failed'; drawWave(); bump('waveFail'); return false; }
-  for (let k=last+1;k<N;k++) ev[k] = ev[last];
-  setEnvFrom(ev, dt); drawWave(); bump('waveScan');
-  return true;
+  if (waveState === 'scanning') waveState = prevState;  // 途中で一括の読み込みが終わっていたらそちらを使う
+  if (waveState !== 'ok'){ if (!ok) { drawWave(); return false; } buildLive(); bump('waveScan'); }
+  drawWave();
+  return ok;
 }
 
 function drawWave(){
@@ -719,8 +739,7 @@ function drawWave(){
   x.fillStyle = ink; x.globalAlpha = 0.55;
   const mid = c.height/2;
   const wl = $('waveLoad');
-  if (waveState === 'failed'){ wl.style.display = ''; wl.disabled = false; wl.textContent = 'タップして声の波形を表示'; }
-  else if (waveState === 'scanning'){ wl.style.display = ''; wl.disabled = true; }
+  if (waveState === 'scanning'){ wl.style.display = ''; wl.disabled = true; }
   else wl.style.display = 'none';
   if (!peaks){ x.fillRect(8*dpr, mid-1*dpr, c.width-16*dpr, 2*dpr); return; }
   const bw = 3*dpr, gap = 2*dpr, n = Math.floor(c.width/(bw+gap));
@@ -770,10 +789,10 @@ function findSpeech(t0, t1){
   return out;
 }
 async function autoSubs(){
-  if (!env){
-    if (waveState === 'loading'){ msg('声の形を読み込み中です。少し待ってからもう一度押してください。'); return; }
+  if (waveState !== 'ok' && liveAcc && liveCoverage(state.trimStart, state.trimEnd) < 0.9){
     msg('声を読み取っています…');
-    await scanAudio();
+    await scanAudio(state.trimStart, state.trimEnd);
+    msg('');
   }
   const segs = findSpeech(state.trimStart, state.trimEnd);
   if (segs === null){ msg('この動画では声の部分を自動で見つけられませんでした。「ここから字幕を追加」で手動で追加してください。'); return; }
@@ -862,7 +881,7 @@ function wire(){
     video.src = URL.createObjectURL(f);
     $('fileName').textContent = f.name;
     bump('lastType', f.type || (f.name.split('.').pop() || '').toLowerCase());
-    hasMedia = false; $('trimBox').style.display = 'none'; buildWave(f);
+    hasMedia = false; liveAcc = liveCnt = null; liveDirty = false; $('trimBox').style.display = 'none'; buildWave(f);
     state.subs = []; state.beeps = []; renderLists();
     $('result').style.display = 'none'; msg('');
   };
@@ -870,6 +889,7 @@ function wire(){
     hasMedia = true;
     $('seek').max = video.duration || 1;
     state.trimStart = 0; state.trimEnd = video.duration || 0;
+    initLive(video.duration);
     $('trimBox').style.display = 'block'; updateTrim(); drawWave();
     ['playBtn','seek','autoSub','addSub','addBeep','exportBtn','setIn','setOut','trimIn','trimOut','trimReset'].forEach(id => $(id).disabled = false);
   };
@@ -891,7 +911,6 @@ function wire(){
   $('title').oninput = e => { state.title = e.target.value; };
   $('autoSub').onclick = autoSubs;
   $('waveLoad').addEventListener('pointerdown', e => e.stopPropagation());
-  $('waveLoad').onclick = () => scanAudio();
   $('addSub').onclick = () => {
     const t = video.currentTime;
     const s = {start:t, end:Math.min(t + 2.5, video.duration || t + 2.5), text:''};
@@ -937,7 +956,7 @@ function deviceName(){
 function fbAutoText(){
   const st = loadStats();
   const t = '端末：' + deviceName() + '\n'
-    + '声の読み込み：そのまま' + st.waveOk + '回／早送り' + st.waveScan + '回／失敗' + st.waveFail + '回'
+    + '声の読み込み：一括OK ' + st.waveOk + '回／一括NG ' + st.waveFail + '回（早送りで読んだ ' + st.waveScan + '回）'
     + (st.lastType ? '\n最後の動画の形式：' + st.lastType : '');
   $('fbAuto').textContent = '次の情報も一緒に送られます（動画や声は送られません）\n' + t;
   return t;
