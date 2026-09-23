@@ -874,7 +874,16 @@ function wire(){
     ['playBtn','seek','autoSub','addSub','addBeep','exportBtn','setIn','setOut','trimIn','trimOut','trimReset'].forEach(id => $(id).disabled = false);
   };
   video.onerror = () => { msg('この動画は読み込めませんでした。別の形式の動画で試してください。'); };
-  video.onplay = () => { playFrom = video.currentTime; syncPlayBtn(); }; video.onpause = syncPlayBtn; video.onended = syncPlayBtn;
+  // Safari は一時停止中も最後の音のかけらを繰り返し鳴らすことがあるので、止めたら音の経路ごと止める
+  video.onplay = () => {
+    playFrom = video.currentTime; syncPlayBtn();
+    if (actx){ if (!scanning) outGain.gain.setValueAtTime(1, actx.currentTime); if (actx.state === 'suspended') actx.resume(); }
+  };
+  video.onpause = () => {
+    syncPlayBtn();
+    if (actx && !exporting){ outGain.gain.setValueAtTime(0, actx.currentTime); actx.suspend().catch(()=>{}); }
+  };
+  video.onended = syncPlayBtn;
   $('playBtn').onclick = () => { if (exporting || scanning) return; stopAt = null; video.paused ? startPlay() : video.pause(); };
   const sk = $('seek');
   sk.oninput = () => { seeking = true; video.currentTime = parseFloat(sk.value); };
@@ -1009,6 +1018,7 @@ async function exportVideo(){
   await stopped;
   vs.getTracks().forEach(t => t.stop());
   exporting = false;
+  if (video.paused){ outGain.gain.setValueAtTime(0, actx.currentTime); actx.suspend().catch(()=>{}); }
   ['playBtn','seek','autoSub','addSub','addBeep','exportBtn','setIn','setOut','trimIn','trimOut','trimReset'].forEach(id => $(id).disabled = false);
   $('cancelBtn').style.display = 'none'; $('progress').style.display = 'none';
   if (cancelExport){ msg('書き出しをやめました。'); return; }
