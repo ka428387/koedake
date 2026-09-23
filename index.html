@@ -47,12 +47,20 @@ header p{margin:0;color:var(--muted);font-size:.95rem}
   .stageCol{position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px)}
 }
 .stageCol{display:flex;flex-direction:column;align-items:center;gap:12px}
-#stage{display:block;width:min(100%,340px);height:auto;aspect-ratio:9/16;border-radius:28px;
+.side{display:flex;flex-direction:column;align-items:center;gap:12px;width:min(100%,340px)}
+.sizeBtn{display:none}
+#stage{display:block;height:min(604px,calc(100vh - 170px));min-height:320px;width:auto;max-width:100%;aspect-ratio:9/16;border-radius:28px;
   background:#BFE3F5;box-shadow:0 14px 34px rgba(37,49,59,.18)}
 @media(max-width:879px){
-  .stageCol{position:sticky;top:0;z-index:5;background:var(--bg);margin:0 -16px;padding:calc(env(safe-area-inset-top,0px) + 8px) 16px 10px;box-shadow:0 8px 12px -10px rgba(37,49,59,.35);gap:8px}
-  #stage{width:auto;height:min(32vh,280px);border-radius:18px;box-shadow:0 6px 16px rgba(37,49,59,.16)}
-  .transport{width:100%;max-width:420px}
+  .stageCol{position:sticky;top:0;z-index:5;background:var(--bg);margin:0 -16px;padding:calc(env(safe-area-inset-top,0px) + 8px) 16px 8px;box-shadow:0 8px 12px -10px rgba(37,49,59,.35);
+    flex-direction:row;justify-content:center;align-items:center;gap:12px}
+  #stage{width:auto;height:min(20vh,170px);min-height:0;border-radius:14px;box-shadow:0 4px 12px rgba(37,49,59,.16);flex:none}
+  .stageCol.big #stage{height:min(40vh,360px)}
+  .side{flex:1;min-width:0;max-width:300px;align-items:stretch;gap:8px}
+  .transport{width:100%;flex-wrap:wrap;gap:6px 8px}
+  .transport input[type=range]{min-width:0}
+  .time{min-width:0;text-align:left}
+  .sizeBtn{display:block;padding:6px 12px;font-size:.8rem;align-self:flex-start}
   .play{width:40px;height:40px}
   .privacy{display:none}
   .charas{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
@@ -113,6 +121,7 @@ input[type=number]{width:5.2em;padding:6px 6px;text-align:right}
 .item.beep .del{justify-self:end}
 .item .sep{color:var(--muted);font-size:.8rem}
 .item button{padding:6px 10px;font-size:.8rem}
+.item button.red{color:var(--coral);border-color:currentColor;margin-left:6px}
 
 .item.now{outline:2.5px solid var(--sun);outline-offset:0}
 .item input[type=text]{font-size:1rem}
@@ -151,12 +160,15 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
   <div class="layout">
     <div class="stageCol">
       <canvas id="stage" aria-label="プレビュー"></canvas>
+      <div class="side">
       <div class="transport">
         <button class="play primary" id="playBtn" aria-label="再生" disabled>▶</button>
         <input type="range" id="seek" min="0" max="1" step="0.01" value="0" disabled aria-label="再生位置">
         <span class="time" id="timeLbl">0:00.0</span>
       </div>
+      <button type="button" class="sizeBtn" id="sizeBtn" aria-pressed="false">プレビューを大きく</button>
       <p class="privacy">動画の映像は使いません。音声だけがキャラクターの声になります。読み込んだ動画はこの端末の中だけで処理され、どこにも送信されません。</p>
+      </div>
     </div>
 
     <div>
@@ -206,7 +218,7 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
       <section class="step">
         <h2><span class="num">3</span>字幕を付ける</h2>
         <p class="hint">「しゃべっている所を見つける」を押すと、声のする部分ごとに字幕の枠が自動でできます。あとは上から順に、聞こえたとおりに入力して Enter（スマホは「改行」）を押すだけ。次の部分が自動で流れます。スマホならキーボードのマイクで、子どもの言い方をまねして話すと楽です。</p>
-        <p class="hint">言い間違いを <span class="kbd">*とうもころし*</span> のように * で囲むと、その部分が赤くなります。空欄の枠は字幕に出ません。</p>
+        <p class="hint">赤い字にしたい文字を選んで「赤くする」。選ばずに押すと全体が赤、もう一度押すと戻ります（入力欄では赤い部分が * で囲まれます）。空欄の枠は字幕に出ません。</p>
         <div class="row">
           <button class="primary" id="autoSub" disabled>しゃべっている所を見つける</button>
           <button id="addSub" disabled>ここから字幕を追加</button>
@@ -408,6 +420,24 @@ function parseMarked(text){
   }
   return out;
 }
+// 選んだ部分（なければ全体）の赤を切り替える。a, b は入力欄の選択位置
+function toggleRed(text, a, b){
+  const chars = []; let hi = false, pos = 0, ca = null, cb = null;
+  for (const ch of text){
+    if (ca === null && pos >= a) ca = chars.length;
+    if (cb === null && pos >= b) cb = chars.length;
+    if (ch === '*' || ch === '＊') hi = !hi; else chars.push({c:ch, hi});
+    pos += ch.length;
+  }
+  if (ca === null) ca = chars.length; if (cb === null) cb = chars.length;
+  if (ca >= cb){ ca = 0; cb = chars.length; }
+  const allRed = chars.slice(ca, cb).every(x => x.hi);
+  for (let i=ca;i<cb;i++) chars[i].hi = !allRed;
+  let out = '', cur = false;
+  for (const x of chars){ if (x.hi !== cur){ out += '*'; cur = x.hi; } out += x.c; }
+  if (cur) out += '*';
+  return out;
+}
 function layoutChars(c, chars, maxW){
   const lines = []; let line = [], w = 0;
   for (const ch of chars){
@@ -574,13 +604,26 @@ function renderLists(){
       }
     };
     txt.onfocus = () => { document.querySelectorAll('#subList .item').forEach(r => r.classList.toggle('now', r === row)); };
+    // ボタンを押すと選択が消える端末があるので、選んだ範囲を覚えておく
+    s._sel = [0, 0];
+    const keepSel = () => { if (document.activeElement === txt) s._sel = [txt.selectionStart, txt.selectionEnd]; };
+    ['select','keyup','pointerup','input'].forEach(ev => txt.addEventListener(ev, keepSel));
+    txt._keepSel = keepSel;
+    const red = document.createElement('button'); red.type='button'; red.className='red'; red.textContent='赤くする';
+    red.addEventListener('mousedown', e => e.preventDefault());
+    red.onclick = () => {
+      const [a, b] = s._sel;
+      s.text = txt.value = toggleRed(txt.value, a, b);
+      s._sel = [0, 0];
+      if (video.paused && s.end > s.start) video.currentTime = Math.min(s.end - 0.05, s.start + 0.3);  // プレビューに今の字幕を出す
+    };
     const del = document.createElement('button'); del.type='button'; del.className='del'; del.textContent='削除';
     del.onclick = () => { state.subs.splice(state.subs.indexOf(s),1); renderLists(); };
     const a = numInput(s.start, v => { s.start = v; if (s.end <= v) s.end = v + 0.5; });
     const b = numInput(s.end, v => { s.end = Math.max(v, s.start + 0.1); });
     const tm = document.createElement('span'); tm.className = 'tm';
     const lbl = document.createElement('span'); lbl.className='sep'; lbl.textContent='秒';
-    tm.append(a, sep, b, lbl);
+    tm.append(a, sep, b, lbl, red);
     row.append(go, txt, del, tm);
     sl.append(row);
     s._input = txt;
@@ -904,6 +947,12 @@ function wire(){
     if (actx && !exporting){ outGain.gain.setValueAtTime(0, actx.currentTime); actx.suspend().catch(()=>{}); }
   };
   video.onended = syncPlayBtn;
+  document.addEventListener('selectionchange', () => { const el = document.activeElement; if (el && el._keepSel) el._keepSel(); });
+  $('sizeBtn').onclick = () => {
+    const big = document.querySelector('.stageCol').classList.toggle('big');
+    $('sizeBtn').textContent = big ? 'プレビューを小さく' : 'プレビューを大きく';
+    $('sizeBtn').setAttribute('aria-pressed', big);
+  };
   $('playBtn').onclick = () => { if (exporting || scanning) return; stopAt = null; video.paused ? startPlay() : video.pause(); };
   const sk = $('seek');
   sk.oninput = () => { seeking = true; video.currentTime = parseFloat(sk.value); };
