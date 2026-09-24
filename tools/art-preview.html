@@ -70,10 +70,13 @@ function frame(ms){
       big.restore();
     }
     if (guide){
-      big.fillStyle = 'rgba(37,49,59,0.12)'; big.fillRect(0, 0, W, 260); big.fillRect(0, 960, W, H - 960);
-      big.fillStyle = 'rgba(37,49,59,0.55)'; big.font = '700 34px sans-serif'; big.textAlign = 'center';
-      big.fillText('タイトルが出る場所', W/2, 140); big.fillText('字幕が出る場所', W/2, 1060);
-      big.strokeStyle = 'rgba(217,75,60,0.5)'; big.setLineDash([12,10]); big.lineWidth = 3; big.strokeRect(60, 300, 600, 600); big.setLineDash([]);
+      // タイトル（頭をかけない）は濃く、字幕（体はかかってよい・顔はかけない）は枠だけ
+      big.fillStyle = 'rgba(37,49,59,0.14)'; big.fillRect(0, 0, W, 260);
+      big.strokeStyle = 'rgba(37,49,59,0.45)'; big.setLineDash([16,10]); big.lineWidth = 4; big.strokeRect(50, 980, W - 100, 200); big.setLineDash([]);
+      big.fillStyle = 'rgba(37,49,59,0.6)'; big.font = '700 34px sans-serif'; big.textAlign = 'center';
+      big.fillText('タイトルが出る場所（頭をかけない）', W/2, 140);
+      big.font = '700 28px sans-serif'; big.fillText('字幕が出る場所（体はかかってよい）', W/2, 1085);
+      big.strokeStyle = 'rgba(217,75,60,0.5)'; big.setLineDash([12,10]); big.lineWidth = 3; big.strokeRect(20, 280, W - 40, 960); big.setLineDash([]);
     }
     th.fillStyle = '#F2F6F9'; th.fillRect(0, 0, 144, 144);
     th.save(); th.translate(72, 76); call(ch.draw, th, {r:44, open:0, level:0, blink:1, now, hush:false, thumb:true}, ch.id); th.restore();
