@@ -1264,7 +1264,12 @@ async function nativeShare(blob, ext){
   const {uri} = await fs('getUri', {path:name});
   try { await cap.nativePromise('Share', 'share', {files:[uri]}); } catch(e){}  // 共有メニューを閉じたときもここに来る
 }
-function fileName(ext){ return 'koedake-' + new Date().toISOString().slice(0,10) + '.' + ext; }
+// 同じ日に何本作っても名前がぶつからないよう、日本の日付＋時刻（秒まで）を付ける。例：koedake-20260924-141530.mp4
+function fileName(ext){
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return 'koedake-' + stamp + '.' + ext;
+}
 // スマホは共有シート（iPhoneは「ビデオを保存」、LINEなど）、PCはダウンロード
 function canShareFile(blob, ext){
   if (!navigator.canShare || !matchMedia('(pointer:coarse)').matches) return false;
