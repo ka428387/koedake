@@ -1250,6 +1250,20 @@ async function exportVideo(){
   offerSave(lastBlob, lastExt);
 }
 
+// iPhoneアプリの箱（Capacitor）の中か。プラグインの JS は入れていないので直接呼ぶ
+const cap = window.Capacitor;
+const hasNative = n => !!(cap && cap.nativePromise && (cap.PluginHeaders || []).some(h => h.name === n));
+const inApp = () => hasNative('Filesystem') && hasNative('Share');
+const blobB64 = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(b); });
+// アプリ：一時フォルダに書き出して共有メニューへ（「ビデオを保存」・LINE・インスタなど）
+async function nativeShare(blob, ext){
+  const fs = (m, o) => cap.nativePromise('Filesystem', m, {directory:'CACHE', ...o});
+  try { for (const f of (await fs('readdir', {path:''})).files) if (/^koedake-.*\.(mp4|webm)$/.test(f.name)) await fs('deleteFile', {path:f.name}); } catch(e){}  // 前の動画は片づける
+  const name = fileName(ext), CH = 3*1024*1024;  // 3の倍数で区切ると、つなげても正しい base64 になる
+  for (let i=0;i<blob.size;i+=CH) await fs(i ? 'appendFile' : 'writeFile', {path:name, data: await blobB64(blob.slice(i, i+CH))});
+  const {uri} = await fs('getUri', {path:name});
+  try { await cap.nativePromise('Share', 'share', {files:[uri]}); } catch(e){}  // 共有メニューを閉じたときもここに来る
+}
 function fileName(ext){ return 'koedake-' + new Date().toISOString().slice(0,10) + '.' + ext; }
 // スマホは共有シート（iPhoneは「ビデオを保存」、LINEなど）、PCはダウンロード
 function canShareFile(blob, ext){
@@ -1264,6 +1278,12 @@ function download(blob, ext){
 }
 // 書き出し直後に呼ぶ。共有シートはボタンを押したときしか開けないので、スマホでは押してもらう
 function offerSave(blob, ext){
+  if (inApp()){
+    $('saveBtn').textContent = '保存・送る';
+    msg('できました。「ビデオを保存」やLINEを選べます。');
+    nativeShare(blob, ext);
+    return;
+  }
   if (canShareFile(blob, ext)){
     $('saveBtn').textContent = '保存・送る';
     msg('できました。「保存・送る」から「ビデオを保存」やLINEを選べます。');
@@ -1274,6 +1294,7 @@ function offerSave(blob, ext){
   }
 }
 async function saveBlob(blob, ext){
+  if (inApp()){ await nativeShare(blob, ext); return; }
   if (canShareFile(blob, ext)){
     try { await navigator.share({files:[new File([blob], fileName(ext), {type:blob.type})]}); return; }
     catch(e){
