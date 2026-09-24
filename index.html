@@ -959,10 +959,98 @@ async function decodeAny(ab){
   }
   return null;
 }
+/* iPhone の .mov・.mp4 から AAC の音だけを取り出し、ADTS という形に並べ直す。
+   映像は読まない。ファイル全体も読み込まず、目次（moov）と音のかたまりだけを読む。
+   iPhone の .mov は一括の decodeAudioData に失敗するが、音だけにすると読めることが多い */
+async function extractAac(file){
+  const rd = async (pos, len) => new DataView(await file.slice(pos, pos + len).arrayBuffer());
+  const tag = (dv, p) => String.fromCharCode(dv.getUint8(p), dv.getUint8(p+1), dv.getUint8(p+2), dv.getUint8(p+3));
+  // いちばん外側の箱をたどって moov を探す（iPhone は最後にあることが多い）
+  let pos = 0, moov = null;
+  while (pos + 8 <= file.size){
+    const h = await rd(pos, Math.min(16, file.size - pos));
+    let size = h.getUint32(0); const t = tag(h, 4);
+    if (size === 1) size = Number(h.getBigUint64(8)); else if (size === 0) size = file.size - pos;
+    if (size < 8) return null;
+    if (t === 'moov'){ if (size > 64*1024*1024) return null; moov = await rd(pos, size); break; }
+    pos += size;
+  }
+  if (!moov) return null;
+  const kids = (s, e) => {
+    const out = []; let p = s;
+    while (p + 8 <= e){
+      let size = moov.getUint32(p), hdr = 8; const t = tag(moov, p+4);
+      if (size === 1){ size = Number(moov.getBigUint64(p+8)); hdr = 16; } else if (size === 0) size = e - p;
+      if (size < 8 || p + size > e) break;
+      out.push({t, s:p+hdr, e:p+size}); p += size;
+    }
+    return out;
+  };
+  const kid = (b, t) => b && kids(b.s, b.e).find(x => x.t === t);
+  for (const trak of kids(8, moov.byteLength).filter(b => b.t === 'trak')){
+    const mdia = kid(trak, 'mdia'), hdlr = kid(mdia, 'hdlr');
+    if (!hdlr || tag(moov, hdlr.s + 8) !== 'soun') continue;
+    const stbl = kid(kid(mdia, 'minf'), 'stbl'); if (!stbl) continue;
+    const stsd = kid(stbl, 'stsd'), stsz = kid(stbl, 'stsz'), stsc = kid(stbl, 'stsc'), stco = kid(stbl, 'stco') || kid(stbl, 'co64');
+    if (!stsd || !stsz || !stsc || !stco) continue;
+    const entry = stsd.s + 8; if (tag(moov, entry + 4) !== 'mp4a') return null;  // AAC 以外（無圧縮など）はあきらめて一括の読み込みへ
+    // esds（どこにあるかは QuickTime の版で変わるので探す）→ AudioSpecificConfig
+    let asc = null;
+    for (let p = entry + 8; p + 4 < Math.min(stsd.e, entry + moov.getUint32(entry)); p++){
+      if (tag(moov, p) !== 'esds') continue;
+      let q = p + 8, end = p - 4 + moov.getUint32(p - 4);
+      const len = () => { let n = 0, b, k = 0; do { b = moov.getUint8(q++); n = (n << 7) | (b & 0x7f); } while ((b & 0x80) && ++k < 4); return n; };
+      while (q < end){
+        const tg = moov.getUint8(q++), n = len();
+        if (tg === 0x03){ const fl = moov.getUint8(q + 2); q += 3; if (fl & 0x80) q += 2; if (fl & 0x40) q += 1 + moov.getUint8(q); if (fl & 0x20) q += 2; }
+        else if (tg === 0x04) q += 13;
+        else if (tg === 0x05){ asc = [moov.getUint8(q), moov.getUint8(q+1)]; break; }
+        else q += n;
+      }
+      break;
+    }
+    if (!asc) return null;
+    let aot = asc[0] >> 3, fi = ((asc[0] & 7) << 1) | (asc[1] >> 7), ch = (asc[1] >> 3) & 0xf;
+    if (aot === 31 || fi === 15) return null;
+    if (aot > 4) aot = 2;  // HE-AAC なども土台の AAC-LC として出す
+    const rates = [96000,88200,64000,48000,44100,32000,24000,22050,16000,12000,11025,8000,7350];
+    // 音のかたまりの大きさと場所
+    const fixed = moov.getUint32(stsz.s + 4), n = moov.getUint32(stsz.s + 8);
+    const sizes = new Uint32Array(n); for (let i=0;i<n;i++) sizes[i] = fixed || moov.getUint32(stsz.s + 12 + i*4);
+    const nc = moov.getUint32(stco.s + 4), big = stco.t === 'co64', offs = [];
+    for (let i=0;i<nc;i++) offs.push(big ? Number(moov.getBigUint64(stco.s + 8 + i*8)) : moov.getUint32(stco.s + 8 + i*4));
+    const ns = moov.getUint32(stsc.s + 4), runs = [];
+    for (let i=0;i<ns;i++) runs.push([moov.getUint32(stsc.s + 8 + i*12), moov.getUint32(stsc.s + 12 + i*12)]);
+    let total = 0; for (const z of sizes) total += z + 7;
+    if (!n || total > 200*1024*1024) return null;
+    const out = new Uint8Array(total); let o = 0, si = 0;
+    for (let c=0; c<nc && si<n; c++){
+      let per = 0; for (const [first, k] of runs) if (c + 1 >= first) per = k;
+      let bytes = 0; for (let k=0; k<per && si+k<n; k++) bytes += sizes[si+k];
+      const chunk = new Uint8Array(await file.slice(offs[c], offs[c] + bytes).arrayBuffer()); let cp = 0;
+      for (let k=0; k<per && si<n; k++, si++){
+        const z = sizes[si], L = z + 7;
+        out[o] = 0xFF; out[o+1] = 0xF1; out[o+2] = ((aot - 1) << 6) | (fi << 2) | (ch >> 2);
+        out[o+3] = ((ch & 3) << 6) | (L >> 11); out[o+4] = (L >> 3) & 0xFF; out[o+5] = ((L & 7) << 5) | 0x1F; out[o+6] = 0xFC;
+        out.set(chunk.subarray(cp, cp + z), o + 7); o += L; cp += z;
+      }
+    }
+    return {data: out.buffer.slice(0, o), rate: rates[fi]};
+  }
+  return null;
+}
+function isMp4Like(head){ return head.length >= 12 && String.fromCharCode(...head.slice(4, 8)) === 'ftyp'; }
 async function buildWave(file){
   peaks = null; env = null; waveState = 'loading'; drawWave();
   let buf = null;
-  if (file.size <= 400*1024*1024){
+  // .mov・.mp4 はまず音だけを取り出して読む（速い・iPhone でも読めることが多い）
+  try {
+    if (isMp4Like(new Uint8Array(await file.slice(0, 12).arrayBuffer()))){
+      const aac = await extractAac(file);
+      if (aac) buf = await decodeAny(aac.data);
+    }
+  } catch(e){ buf = null; }
+  if (!buf && file.size <= 400*1024*1024){
     try { buf = await decodeAny(await file.arrayBuffer()); } catch(e){ buf = null; }
   }
   if (buf){
@@ -990,8 +1078,9 @@ async function scanAudio(t0, t1){
   outGain.gain.setValueAtTime(0, actx.currentTime);
   if (Math.abs(video.currentTime - t0) > 0.01){ video.currentTime = t0; await once(video, 'seeked'); }
   try { video.playbackRate = 4; } catch(e){ video.playbackRate = 2; }
-  let ok = true;
+  let ok = true, stalled = false, lastT = -1, lastMove = performance.now();
   try { await video.play(); } catch(e){ ok = false; }
+  if (ok) actx.resume().catch(()=>{});
   if (ok) await new Promise(res => {
     const tick = () => {
       const t = video.currentTime;
@@ -1001,6 +1090,8 @@ async function scanAudio(t0, t1){
       if (Math.sqrt(q/tbuf.length) > 0.02) addPitch(t, estimatePitch(tbuf, actx.sampleRate));
       $('waveLoad').textContent = '声を読み取り中… ' + Math.round(Math.min(1, (t-t0)/(t1-t0))*100) + '%';
       if (video.ended || video.paused || t >= t1 - 0.02) return res();
+      // 進まないまま3秒たったらあきらめる（止まったまま待たせない）
+      if (t !== lastT){ lastT = t; lastMove = performance.now(); } else if (performance.now() - lastMove > 3000){ stalled = true; return res(); }
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -1010,7 +1101,8 @@ async function scanAudio(t0, t1){
   video.currentTime = backT;
   scanning = false;
   if (waveState === 'scanning') waveState = prevState;  // 途中で一括の読み込みが終わっていたらそちらを使う
-  if (waveState !== 'ok'){ if (!ok) { drawWave(); return false; } buildLive(); bump('waveScan'); }
+  if (stalled) ok = false;
+  if (waveState !== 'ok'){ if (!ok) { if (liveDirty) buildLive(); drawWave(); return false; } buildLive(); bump('waveScan'); }
   drawWave();
   return ok;
 }
@@ -1077,8 +1169,12 @@ function findSpeech(t0, t1){
 async function autoSubs(){
   if (waveState !== 'ok' && liveAcc && liveCoverage(state.trimStart, state.trimEnd) < 0.9){
     msg('声を読み取っています…', 'subMsg');
-    await scanAudio(state.trimStart, state.trimEnd);
+    const done = await scanAudio(state.trimStart, state.trimEnd);
     msg('', 'subMsg');
+    if (!done && liveCoverage(state.trimStart, state.trimEnd) < 0.5){
+      msg('声をうまく読み取れませんでした。一度 ▶ で使う部分を最後まで再生してから、もう一度押してください。', 'subMsg');
+      return;
+    }
   }
   const segs = findSpeech(state.trimStart, state.trimEnd);
   if (segs === null){ msg('この動画では声の部分を自動で見つけられませんでした。「ここから字幕を追加」で手動で追加してください。', 'subMsg'); return; }
@@ -1185,11 +1281,12 @@ function wire(){
   // Safari は一時停止中も最後の音のかけらを繰り返し鳴らすことがあるので、止めたら音の経路ごと止める
   video.onplay = () => {
     playFrom = video.currentTime; syncPlayBtn();
-    if (actx){ if (!scanning) outGain.gain.setValueAtTime(1, actx.currentTime); if (actx.state === 'suspended') actx.resume(); }
+    // 止める処理がまだ終わっていないこともあるので、状態を見ずに必ず動かし直す（iPhone は音の経路が止まっていると動画も進まない）
+    if (actx){ if (!scanning) outGain.gain.setValueAtTime(1, actx.currentTime); actx.resume().catch(()=>{}); }
   };
   video.onpause = () => {
     syncPlayBtn();
-    if (actx && !exporting){ outGain.gain.setValueAtTime(0, actx.currentTime); actx.suspend().catch(()=>{}); }
+    if (actx && !exporting && !scanning){ outGain.gain.setValueAtTime(0, actx.currentTime); actx.suspend().catch(()=>{}); }
   };
   video.onended = syncPlayBtn;
   document.addEventListener('selectionchange', () => { const el = document.activeElement; if (el && el._keepSel) el._keepSel(); });
