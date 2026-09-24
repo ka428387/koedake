@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>こえだけ（試作版）</title>
+<title>ぱぺとーく（試作版）</title>
 <meta name="description" content="子どもの声はそのままに、顔は出さずに。動画の音声にキャラクターと字幕を付けて、縦長の動画にします。">
 <meta name="robots" content="noindex">
-<meta property="og:title" content="こえだけ（試作版）">
+<meta property="og:title" content="ぱぺとーく（試作版）">
 <meta property="og:description" content="子どもの声はそのままに、顔は出さずに。動画の音声にキャラクターと字幕を付けて、縦長の動画にします。">
 <meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -154,7 +154,7 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
 <body>
 <div class="wrap">
   <header>
-    <h1>こえだけ</h1>
+    <h1>ぱぺとーく</h1>
     <p>子どもの声はそのままに、顔は出さずに。</p>
     <span class="badge">試作版</span>
   </header>
@@ -692,7 +692,7 @@ function render(now, t, level, inBeep){
   if (sub) drawText(g, sub.text, 1090, 64, 620, 'bottom');
 
   g.font = `700 24px ${FONT}`; g.textBaseline = 'middle'; g.fillStyle = 'rgba(37,49,59,0.45)';
-  g.textAlign = 'center'; g.fillText('こえだけ', W/2, H - 44); g.textAlign = 'start';
+  g.textAlign = 'center'; g.fillText('ぱぺとーく', W/2, H - 44); g.textAlign = 'start';
 }
 
 /* ---------- loop ---------- */
@@ -1202,7 +1202,7 @@ function fbText(){
   const v = id => $(id).value.trim();
   const freq = document.querySelector('input[name=fbFreq]:checked');
   const made = v('fbMade'), sent = v('fbSent');
-  return '【こえだけ 感想】\n'
+  return '【ぱぺとーく 感想】\n'
     + '1. 子ども：' + (v('fbKids') || '－') + '\n'
     + '2. 作った：' + (made || '－') + '本（SNS・LINEに送った：' + (sent || '－') + '本）\n'
     + '3. 迷ったところ：' + (v('fbHard') || '－') + '\n'
@@ -1297,17 +1297,17 @@ const blobB64 = b => new Promise((res, rej) => { const r = new FileReader(); r.o
 // アプリ：一時フォルダに書き出して共有メニューへ（「ビデオを保存」・LINE・インスタなど）
 async function nativeShare(blob, ext){
   const fs = (m, o) => cap.nativePromise('Filesystem', m, {directory:'CACHE', ...o});
-  try { for (const f of (await fs('readdir', {path:''})).files) if (/^koedake-.*\.(mp4|webm)$/.test(f.name)) await fs('deleteFile', {path:f.name}); } catch(e){}  // 前の動画は片づける
+  try { for (const f of (await fs('readdir', {path:''})).files) if (/^(koedake|papetalk)-.*\.(mp4|webm)$/.test(f.name)) await fs('deleteFile', {path:f.name}); } catch(e){}  // 前の動画は片づける
   const name = fileName(ext), CH = 3*1024*1024;  // 3の倍数で区切ると、つなげても正しい base64 になる
   for (let i=0;i<blob.size;i+=CH) await fs(i ? 'appendFile' : 'writeFile', {path:name, data: await blobB64(blob.slice(i, i+CH))});
   const {uri} = await fs('getUri', {path:name});
   try { await cap.nativePromise('Share', 'share', {files:[uri]}); } catch(e){}  // 共有メニューを閉じたときもここに来る
 }
-// 同じ日に何本作っても名前がぶつからないよう、日本の日付＋時刻（秒まで）を付ける。例：koedake-20260924-141530.mp4
+// 同じ日に何本作っても名前がぶつからないよう、日本の日付＋時刻（秒まで）を付ける。例：papetalk-20260924-141530.mp4
 function fileName(ext){
   const d = new Date(), p = n => String(n).padStart(2, '0');
   const stamp = `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-  return 'koedake-' + stamp + '.' + ext;
+  return 'papetalk-' + stamp + '.' + ext;
 }
 // スマホは共有シート（iPhoneは「ビデオを保存」、LINEなど）、PCはダウンロード
 function canShareFile(blob, ext){
