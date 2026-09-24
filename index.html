@@ -308,6 +308,12 @@ const ART = (window.KoedakeArt && typeof window.KoedakeArt === 'object') ? windo
 const ART_CHARAS = Array.isArray(ART.charas) ? ART.charas.filter(ch => ch && typeof ch.id === 'string' && typeof ch.draw === 'function') : [];
 for (const ch of ART_CHARAS) CHARAS.push({id: ch.id, name: String(ch.name || ch.id), art: ch});
 function artChara(id){ return ART_CHARAS.find(ch => ch.id === id); }
+// 「ないしょ」吹き出しの置き場所。Codex 版のキャラは secretAt: {x, y}（キャラの中心から見た位置）で変えられる
+function secretPos(ac){
+  const p = ac && ac.secretAt;
+  if (p && isFinite(p.x) && isFinite(p.y)) return [W/2 + Math.max(-240, Math.min(240, p.x)), 600 + Math.max(-340, Math.min(300, p.y))];
+  return [520, 330];
+}
 let artErrShown = false;
 function drawArt(c, ch, v){
   c.save();
@@ -677,8 +683,9 @@ function render(now, t, level, inBeep){
   }
 
   if (inBeep){
-    if (typeof ART.drawSecret === 'function'){ g.save(); g.translate(520, 330); try { ART.drawSecret(g, Object.freeze({now, charaId:state.chara})); } catch(e){ console.error('art.js の吹き出しでエラー:', e); } g.restore(); }
-    else drawSecret(g, 520, 330, now);
+    const [sx, sy] = secretPos(ac);
+    if (typeof ART.drawSecret === 'function'){ g.save(); g.translate(sx, sy); try { ART.drawSecret(g, Object.freeze({now, charaId:state.chara})); } catch(e){ console.error('art.js の吹き出しでエラー:', e); } g.restore(); }
+    else drawSecret(g, sx, sy, now);
   }
 
   const sub = state.subs.find(s => t >= s.start && t < s.end);

@@ -63,7 +63,8 @@ function frame(ms){
     big.fillStyle = bg; big.fillRect(0, 0, W, H);
     big.save(); big.translate(W/2, 600); call(ch.draw, big, {r:200, open:lv, level:lv, blink, now, hush, thumb:false}, ch.id); big.restore();
     if (hush){
-      big.save(); big.translate(520, 330);
+      const sa = ch.secretAt && isFinite(ch.secretAt.x) && isFinite(ch.secretAt.y) ? [W/2 + Math.max(-240, Math.min(240, ch.secretAt.x)), 600 + Math.max(-340, Math.min(300, ch.secretAt.y))] : [520, 330];
+      big.save(); big.translate(sa[0], sa[1]);
       if (typeof art.drawSecret === 'function') call(art.drawSecret, big, {now, charaId:ch.id}, 'drawSecret');
       else { big.fillStyle = '#fff'; big.strokeStyle = '#25313B'; big.lineWidth = 6; big.beginPath(); big.roundRect(-115,-52,230,104,52); big.fill(); big.stroke(); big.fillStyle = '#25313B'; big.font = '700 46px sans-serif'; big.textAlign = 'center'; big.textBaseline = 'middle'; big.fillText('ないしょ', 0, 2); }
       big.restore();
