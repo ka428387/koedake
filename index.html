@@ -701,7 +701,14 @@ function render(now, t, level, inBeep){
 
 /* ---------- loop ---------- */
 let level = 0, beepOn = false;
+// 1コマの中でエラーが出ても、次のコマは必ず描く（止まると赤い線やプレビューが固まる）
+let frameErr = 0;
 function frame(ms){
+  try { frameBody(ms); }
+  catch(e){ if (frameErr++ < 3) console.error('frame でエラー:', e); }
+  requestAnimationFrame(frame);
+}
+function frameBody(ms){
   const now = ms/1000, t = video.currentTime || 0;
   if (!scanning && hasMedia && !video.paused && playFrom < state.trimEnd - 0.05 && t >= state.trimEnd - 0.01){
     video.pause();
@@ -737,7 +744,6 @@ function frame(ms){
   $('timeLbl').textContent = fmt(t);
   if (hasMedia && video.duration) $('ph').style.left = (t/video.duration*100) + '%';
   if (exporting && video.duration) $('progress').firstElementChild.style.width = Math.min(100, Math.max(0,(t-state.trimStart)/(state.trimEnd-state.trimStart)*100)).toFixed(1)+'%';
-  requestAnimationFrame(frame);
 }
 function fmt(t){ const m = Math.floor(t/60), s = t - m*60; return m + ':' + (s<10?'0':'') + s.toFixed(1); }
 
@@ -775,11 +781,15 @@ function numInput(val, onch){
 }
 let stopAt = null;
 function seekPlay(t, end){ video.currentTime = t; stopAt = end ?? null; startPlay(); }
-function playSub(i){
+// focus：入力欄にカーソルを移すか。Enter で次へ進むときだけ（キーボードがもう出ているとき）。▶ では移さない
+function playSub(i, focus){
   const s = state.subs[i]; if (!s) return;
   document.querySelectorAll('#subList .item').forEach((r,j) => r.classList.toggle('now', j === i));
   seekPlay(s.start, s.end);
-  if (s._input){ s._input.focus({preventScroll:true}); s._input.scrollIntoView({block:'nearest', behavior:'smooth'}); }
+  if (s._input){
+    if (focus) s._input.focus({preventScroll:true});
+    s._input.closest('.item').scrollIntoView({block:'nearest', behavior:'smooth'});
+  }
 }
 function renderLists(){
   const sl = $('subList'); sl.innerHTML = '';
@@ -797,7 +807,7 @@ function renderLists(){
         e.preventDefault();
         const i = state.subs.indexOf(s);
         const next = state.subs.findIndex((x, j) => j > i && !x.adult);
-        if (next >= 0) playSub(next);
+        if (next >= 0) playSub(next, true);
         else { txt.blur(); msg('字幕の入力が終わりました。プレビューで確認してみてください。', 'subMsg'); }
       }
     };
