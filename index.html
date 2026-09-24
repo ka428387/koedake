@@ -129,6 +129,8 @@ input[type=number]{width:5.2em;padding:6px 6px;text-align:right}
 .progress{height:10px;background:var(--field);border-radius:999px;overflow:hidden;margin-top:12px;display:none}
 .progress>div{height:100%;width:0;background:var(--coral)}
 #msg{margin:10px 0 0;font-size:.9rem;min-height:1.4em}
+.stepMsg{margin:8px 0 0;font-size:.9rem;font-weight:700}
+.stepMsg:empty{display:none}
 #result{margin-top:12px;display:none}
 #result video{width:min(100%,260px);border-radius:18px;display:block}
 .fb textarea{font:inherit;color:var(--ink);background:var(--field);border:1.5px solid var(--line);border-radius:12px;padding:8px 10px;width:100%;min-height:4.6em;resize:vertical;margin-top:4px}
@@ -177,6 +179,7 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
         <p class="hint">スマホで撮った動画をそのまま選べます。長い動画でも、このあと使う部分だけ選べます。動画はこの端末の中だけで処理され、どこにも送信されません。</p>
         <span class="btn primary filebtn">動画を選ぶ<input type="file" id="file" accept="video/*,audio/*"></span>
         <span class="fileName" id="fileName"></span>
+        <p class="stepMsg" id="loadMsg" role="status"></p>
         <div id="trimBox" style="display:none;margin-top:18px">
           <p class="hint">黄色い枠の両はしを指でつまんで動かし、使う部分を囲みます。枠の真ん中をつまむと、長さはそのまま位置だけ動かせます。波の山は声が大きいところです。</p>
           <div class="trimmer" id="trimmer">
@@ -223,6 +226,7 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
           <button class="primary" id="autoSub" disabled>しゃべっている所を見つける</button>
           <button id="addSub" disabled>ここから字幕を追加</button>
         </div>
+        <p class="stepMsg" id="subMsg" role="status"></p>
         <div class="list" id="subList"></div>
       </section>
 
@@ -750,7 +754,7 @@ function renderLists(){
         e.preventDefault();
         const i = state.subs.indexOf(s);
         if (i < state.subs.length - 1) playSub(i + 1);
-        else { txt.blur(); msg('字幕の入力が終わりました。プレビューで確認してみてください。'); }
+        else { txt.blur(); msg('字幕の入力が終わりました。プレビューで確認してみてください。', 'subMsg'); }
       }
     };
     txt.onfocus = () => { document.querySelectorAll('#subList .item').forEach(r => r.classList.toggle('now', r === row)); };
@@ -983,13 +987,13 @@ function findSpeech(t0, t1){
 }
 async function autoSubs(){
   if (waveState !== 'ok' && liveAcc && liveCoverage(state.trimStart, state.trimEnd) < 0.9){
-    msg('声を読み取っています…');
+    msg('声を読み取っています…', 'subMsg');
     await scanAudio(state.trimStart, state.trimEnd);
-    msg('');
+    msg('', 'subMsg');
   }
   const segs = findSpeech(state.trimStart, state.trimEnd);
-  if (segs === null){ msg('この動画では声の部分を自動で見つけられませんでした。「ここから字幕を追加」で手動で追加してください。'); return; }
-  if (!segs.length){ msg('声の部分が見つかりませんでした。使う範囲を確認してください。'); return; }
+  if (segs === null){ msg('この動画では声の部分を自動で見つけられませんでした。「ここから字幕を追加」で手動で追加してください。', 'subMsg'); return; }
+  if (!segs.length){ msg('声の部分が見つかりませんでした。使う範囲を確認してください。', 'subMsg'); return; }
   const filled = state.subs.filter(s => s.text.trim());
   if (filled.length && !confirm('入力済みの字幕はそのまま残し、重ならない部分にだけ枠を追加します。よろしいですか？')) return;
   state.subs = state.subs.filter(s => s.text.trim());
@@ -999,7 +1003,7 @@ async function autoSubs(){
     state.subs.push({start:a, end:b, text:''}); added++;
   }
   renderLists();
-  msg(added + 'か所見つけました。1つめを再生します。');
+  msg(added + 'か所見つけました。1つめを再生します。', 'subMsg');
   const first = state.subs.findIndex(s => !s.text.trim());
   if (first >= 0) playSub(first);
 }
@@ -1061,10 +1065,11 @@ async function startPlay(){
   const ct = video.currentTime;
   if (Math.abs(ct - state.trimEnd) < 0.1 && state.trimEnd - state.trimStart > 0.2){ video.currentTime = state.trimStart; await once(video,'seeked'); }
   if (actx.state === 'suspended') await actx.resume();
-  try { await video.play(); } catch(e){ msg('再生できませんでした。別の動画で試してください。'); }
+  try { await video.play(); } catch(e){ msg('再生できませんでした。別の動画で試してください。', 'loadMsg'); }
 }
 function syncPlayBtn(){ const p = video.paused; $('playBtn').textContent = p ? '▶' : '❚❚'; $('playBtn').setAttribute('aria-label', p ? '再生' : '一時停止'); }
-function msg(t){ $('msg').textContent = t; }
+// 場所ごとのお知らせ：書き出し（msg）、字幕（subMsg）、動画の読み込み（loadMsg）
+function msg(t, where){ $(where || 'msg').textContent = t; }
 
 let seeking = false;
 function wire(){
@@ -1076,7 +1081,7 @@ function wire(){
     bump('lastType', f.type || (f.name.split('.').pop() || '').toLowerCase());
     hasMedia = false; liveAcc = liveCnt = null; liveDirty = false; $('trimBox').style.display = 'none'; buildWave(f);
     state.subs = []; state.beeps = []; renderLists();
-    $('result').style.display = 'none'; msg('');
+    $('result').style.display = 'none'; msg(''); msg('', 'subMsg'); msg('', 'loadMsg');
   };
   video.onloadedmetadata = () => {
     hasMedia = true;
@@ -1086,7 +1091,7 @@ function wire(){
     $('trimBox').style.display = 'block'; updateTrim(); drawWave();
     ['playBtn','seek','autoSub','addSub','addBeep','exportBtn','setIn','setOut','trimIn','trimOut','trimReset'].forEach(id => $(id).disabled = false);
   };
-  video.onerror = () => { msg('この動画は読み込めませんでした。別の形式の動画で試してください。'); };
+  video.onerror = () => { msg('この動画は読み込めませんでした。別の形式の動画で試してください。', 'loadMsg'); };
   // Safari は一時停止中も最後の音のかけらを繰り返し鳴らすことがあるので、止めたら音の経路ごと止める
   video.onplay = () => {
     playFrom = video.currentTime; syncPlayBtn();
