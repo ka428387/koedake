@@ -27,10 +27,88 @@
  * ■ 「ないしょ」吹き出し：drawSecret(c, v) を入れると Claude 版の代わりに使う（null なら Claude 版）
  *   c の原点は吹き出しの置き場所（本番画面で (520, 330)）。v.now・v.charaId（今のキャラの id）を読める
  */
-window.KoedakeArt = {
-  ready: Promise.resolve(),
-  charas: [
-    // { id: 'cx-example', name: 'なまえ', draw(c, v){ /* ... */ } },
-  ],
-  drawSecret: null,
-};
+// ここから Codex 版（codex/art-v1 から取り込み。2026-09-25 佳澄さんの採用分：しぇるてぃ）
+(() => {
+  // 水彩のしぇるてぃ。元の画像（1146×1372）を半分の大きさで描き、目と口だけ上から描き足して動かす
+  function watercolorImage(src, name) {
+    const image = new Image();
+    let loaded = false;
+    const ready = new Promise((resolve, reject) => {
+      image.onload = () => { loaded = true; resolve(); };
+      image.onerror = () => reject(new Error(`${name}の画像を読み込めませんでした`));
+      image.src = src;
+    });
+    return { image, ready, loaded: () => loaded };
+  }
+  const sheltieImage = watercolorImage('assets/characters/sheltie-v1.webp', 'しぇるてぃ');
+  const sheltie = { source: sheltieImage, center: 650, eyes: [558, 751, 417], eyeSize: [23, 28], mouth: [655, 550], width: 57, thumb: [650, 395, .18] };
+
+  function oval(c, x, y, rx, ry, fill, angle = 0) {
+    c.beginPath();
+    c.ellipse(x, y, rx, ry, angle, 0, Math.PI * 2);
+    c.fillStyle = fill;
+    c.fill();
+  }
+  function line(c, d, color, width = 6) {
+    c.strokeStyle = color;
+    c.lineWidth = width;
+    c.stroke(new Path2D(d));
+  }
+
+  function watercolorAnimal(c, v, spec) {
+    if (!spec.source.loaded()) return;
+    const still = !!v.thumb;
+    const volume = still || v.hush ? 0 : Math.max(0, Math.min(1, v.level));
+    const breath = still ? 0 : Math.sin(v.now * 1.8);
+    const syllable = still ? 0 : Math.sin(v.now * 9);
+    c.save();
+    c.lineCap = 'round';
+    if (still) {
+      const [cx, cy, scale] = spec.thumb;
+      c.scale(scale, scale);
+      c.translate(-cx, -cy);
+    } else {
+      c.scale(v.r / 200, v.r / 200);
+      c.translate(0, breath * 4 - volume * (12 + syllable * 8));
+      c.scale(1 - volume * syllable * .012, 1 + breath * .006 + volume * syllable * .02);
+      c.scale(.5, .5);
+      c.translate(-spec.center, -650);
+    }
+    c.drawImage(spec.source.image, 0, 0);
+    const dark = '#153763';
+    const [lx, rx, ey] = spec.eyes;
+    const [ew, eh] = spec.eyeSize;
+    if (!still && v.blink < 1) {
+      line(c, `M${lx - ew - 4} ${ey + 2} Q${lx} ${ey + 13} ${lx + ew + 4} ${ey + 2} M${rx - ew - 4} ${ey + 2} Q${rx} ${ey + 13} ${rx + ew + 4} ${ey + 2}`, dark, 6);
+    } else {
+      oval(c, lx, ey, ew, eh, dark);
+      oval(c, rx, ey, ew, eh, dark);
+    }
+    const opening = still || v.hush ? 0 : Math.max(0, Math.min(1, v.open));
+    const step = opening < .08 ? 0 : opening < .38 ? 1 : opening < .72 ? 2 : 3;
+    const [mx, my] = spec.mouth;
+    if (!step) {
+      line(c, `M${mx - spec.width * .5} ${my - 5} Q${mx} ${my + spec.width * .38} ${mx + spec.width * .5} ${my - 5}`, dark, 7);
+    } else {
+      const w = spec.width * [0, .52, .78, 1][step];
+      const h = spec.width * [0, .34, .6, .83][step];
+      c.save();
+      c.beginPath();
+      c.ellipse(mx, my + h * .22, w, h, 0, 0, Math.PI * 2);
+      c.fillStyle = dark;
+      c.fill();
+      c.clip();
+      if (step > 1) oval(c, mx, my + h * 1.05, w * .64, h * .24, '#E8989A');
+      c.restore();
+    }
+    c.restore();
+  }
+
+  window.KoedakeArt = {
+    ready: sheltieImage.ready,
+    charas: [
+      { id: 'cx-sheltie', name: 'しぇるてぃ', secretAt: { x: -240, y: -370 }, draw: (c, v) => watercolorAnimal(c, v, sheltie) },
+    ],
+    drawSecret: null,
+  };
+})();
