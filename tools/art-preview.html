@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<base href="../">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>こえだけ 絵の確認</title>
+<meta name="robots" content="noindex">
+<style>
+  :root{color-scheme:light}
+  body{margin:0;padding:16px;background:#EEF4F8;color:#25313B;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",sans-serif}
+  h1{font-size:1.2rem;margin:0 0 4px} p{margin:4px 0 12px;font-size:.85rem;color:#5C6B77}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+  button{font:inherit;border:1.5px solid #D6E1E9;background:#fff;border-radius:999px;padding:6px 12px;cursor:pointer}
+  button[aria-pressed=true]{border-color:#D94B3C;font-weight:700}
+  .sw{width:28px;height:28px;padding:0}
+  .grid{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+  figure{margin:0;text-align:center;font-size:.85rem}
+  canvas.big{width:270px;height:480px;border-radius:18px;display:block}
+  canvas.thumb{width:72px;height:72px;border-radius:12px;background:#F2F6F9;display:block;margin:6px auto 0}
+  #err{color:#D94B3C;font-weight:700;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>こえだけ 絵の確認（js/art.js）</h1>
+<p>Codex 版のキャラを、本番と同じ大きさ（720×1280）で動かして見る画面です。口は「話している」ような動きを自動で流します。ローカルのサーバーで開いてください（例：site で <code>python3 -m http.server</code> → /tools/art-preview.html）。</p>
+<div class="bar">
+  <span>背景</span><span id="bgs"></span>
+  <button id="talk" aria-pressed="true">話している</button>
+  <button id="hush" aria-pressed="false">ないしょ</button>
+  <button id="guide" aria-pressed="true">字幕・タイトルの位置</button>
+</div>
+<div id="err"></div>
+<div class="grid" id="grid"></div>
+<script src="js/art.js"></script>
+<script>
+const BGS = ['#BFE3F5','#FFE3A3','#CDEBC8','#F9D3D9','#DCD3F2'];
+const W = 720, H = 1280;
+let bg = BGS[0], talk = true, hush = false, guide = true;
+const art = window.KoedakeArt || {}, charas = (art.charas || []).filter(c => c && c.id && typeof c.draw === 'function');
+const err = document.getElementById('err'), grid = document.getElementById('grid');
+if (!charas.length) err.textContent = 'art.js にキャラクターがまだありません（KoedakeArt.charas が空）。';
+const tog = (id, set) => { const b = document.getElementById(id); b.onclick = () => { set(b.getAttribute('aria-pressed') !== 'true'); b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true'); }; };
+tog('talk', v => talk = v); tog('hush', v => hush = v); tog('guide', v => guide = v);
+for (const c of BGS){ const b = document.createElement('button'); b.className = 'sw'; b.style.background = c; b.setAttribute('aria-pressed', c === bg); b.onclick = () => { bg = c; [...b.parentNode.children].forEach(x => x.setAttribute('aria-pressed', x === b)); }; document.getElementById('bgs').append(b); }
+const cells = charas.map(ch => {
+  const f = document.createElement('figure');
+  const big = document.createElement('canvas'); big.className = 'big'; big.width = W; big.height = H;
+  const th = document.createElement('canvas'); th.className = 'thumb'; th.width = th.height = 144;
+  f.append(big, th, document.createTextNode(ch.name + '（' + ch.id + '）')); grid.append(f);
+  return {ch, big: big.getContext('2d'), th: th.getContext('2d')};
+});
+function call(fn, c, v, id){ c.save(); try { fn(c, Object.freeze(v)); } catch(e){ err.textContent = id + ' でエラー: ' + e; } c.restore(); }
+let lv = 0;
+function frame(ms){
+  const now = ms/1000;
+  // 話し声らしい大きさの変化（音節ごとの山＋ときどき間）
+  const syl = Math.max(0, Math.sin(now*9)) * (0.5 + 0.5*Math.sin(now*1.3)) * (Math.sin(now*0.7) > -0.4 ? 1 : 0);
+  const target = talk && !hush ? Math.min(1, syl*1.1) : 0;
+  lv += (target - lv) * (target > lv ? 0.55 : 0.22);
+  const blink = (now % 3.7) < 0.12 ? 0.12 : 1;
+  for (const {ch, big, th} of cells){
+    big.fillStyle = bg; big.fillRect(0, 0, W, H);
+    big.save(); big.translate(W/2, 600); call(ch.draw, big, {r:200, open:lv, level:lv, blink, now, hush, thumb:false}, ch.id); big.restore();
+    if (hush){
+      big.save(); big.translate(520, 330);
+      if (typeof art.drawSecret === 'function') call(art.drawSecret, big, {now, charaId:ch.id}, 'drawSecret');
+      else { big.fillStyle = '#fff'; big.strokeStyle = '#25313B'; big.lineWidth = 6; big.beginPath(); big.roundRect(-115,-52,230,104,52); big.fill(); big.stroke(); big.fillStyle = '#25313B'; big.font = '700 46px sans-serif'; big.textAlign = 'center'; big.textBaseline = 'middle'; big.fillText('ないしょ', 0, 2); }
+      big.restore();
+    }
+    if (guide){
+      big.fillStyle = 'rgba(37,49,59,0.12)'; big.fillRect(0, 0, W, 260); big.fillRect(0, 960, W, H - 960);
+      big.fillStyle = 'rgba(37,49,59,0.55)'; big.font = '700 34px sans-serif'; big.textAlign = 'center';
+      big.fillText('タイトルが出る場所', W/2, 140); big.fillText('字幕が出る場所', W/2, 1060);
+      big.strokeStyle = 'rgba(217,75,60,0.5)'; big.setLineDash([12,10]); big.lineWidth = 3; big.strokeRect(60, 300, 600, 600); big.setLineDash([]);
+    }
+    th.fillStyle = '#F2F6F9'; th.fillRect(0, 0, 144, 144);
+    th.save(); th.translate(72, 76); call(ch.draw, th, {r:44, open:0, level:0, blink:1, now, hush:false, thumb:true}, ch.id); th.restore();
+  }
+  requestAnimationFrame(frame);
+}
+Promise.resolve(art.ready).catch(e => { err.textContent = 'ready で失敗: ' + e; }).then(() => requestAnimationFrame(frame));
+</script>
+</body>
+</html>

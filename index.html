@@ -286,6 +286,7 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
   <video id="src" class="srcVideo" playsinline preload="auto"></video>
 </div>
 
+<script src="js/art.js"></script>
 <script>
 (() => {
 const W = 720, H = 1280;
@@ -302,6 +303,18 @@ const CHARAS = [
   {id:'hiyoko', name:'ひよこ'},
   {id:'kimochi', name:'きもち'}
 ];
+// Codex 版の絵（js/art.js）。読めなかったり形が違ったりしても、Claude 版だけで動くようにする
+const ART = (window.KoedakeArt && typeof window.KoedakeArt === 'object') ? window.KoedakeArt : {};
+const ART_CHARAS = Array.isArray(ART.charas) ? ART.charas.filter(ch => ch && typeof ch.id === 'string' && typeof ch.draw === 'function') : [];
+for (const ch of ART_CHARAS) CHARAS.push({id: ch.id, name: String(ch.name || ch.id), art: ch});
+function artChara(id){ return ART_CHARAS.find(ch => ch.id === id); }
+let artErrShown = false;
+function drawArt(c, ch, v){
+  c.save();
+  try { ch.draw(c, Object.freeze(v)); }
+  catch(e){ if (!artErrShown){ console.error('art.js の描画でエラー:', ch.id, e); artErrShown = true; } }
+  c.restore();
+}
 const BGS = ['#BFE3F5','#FFE3A3','#CDEBC8','#F9D3D9','#DCD3F2'];
 const INK = '#25313B', HI = '#D94B3C';
 const FONT = '"Zen Maru Gothic","Hiragino Maru Gothic ProN","Hiragino Sans",sans-serif';
@@ -342,6 +355,8 @@ const dots = Array.from({length:18}, (_,i) => {
 function ellipse(c, x, y, rx, ry){ c.beginPath(); c.ellipse(x, y, Math.max(rx,.1), Math.max(ry,.1), 0, 0, Math.PI*2); }
 
 function drawChara(c, kind, cx, cy, r, open, blink){
+  const ac = artChara(kind);
+  if (ac){ c.save(); c.translate(cx, cy); drawArt(c, ac, {r, open, level:open, blink, now:performance.now()/1000, hush:false, thumb:true}); c.restore(); return; }
   if (kind === 'kimochi'){ drawBlob(c, cx, cy, r*0.85, KM_CALM, 0.03, 0, 1, 1); return; }
   const col = {kuma:'#C8905B', usagi:'#FFFFFF', neko:'#A3ACB6', hiyoko:'#FFD84D'}[kind];
   const inner = {kuma:'#EBC79E', usagi:'#F7B7C3', neko:'#F4B8C0', hiyoko:'#FFE994'}[kind];
@@ -643,7 +658,14 @@ function render(now, t, level, inBeep){
 
   drawText(g, state.title, 200, 56, 600, 'top');
 
+  const ac = artChara(state.chara);
   if (state.chara === 'kimochi') drawKimochi(g, now, level);
+  else if (ac){
+    const bt = now % 3.7;
+    g.save(); g.translate(W/2, 600);
+    drawArt(g, ac, {r:200, open:level, level, blink: bt < 0.12 ? 0.12 : 1, now, hush:inBeep, thumb:false});
+    g.restore();
+  }
   else {
     const bob = Math.sin(now*2.2)*6 - level*20;
     const bt = now % 3.7; const blink = bt < 0.12 ? 0.12 : 1;
@@ -654,7 +676,10 @@ function render(now, t, level, inBeep){
     g.restore();
   }
 
-  if (inBeep) drawSecret(g, 520, 330, now);
+  if (inBeep){
+    if (typeof ART.drawSecret === 'function'){ g.save(); g.translate(520, 330); try { ART.drawSecret(g, Object.freeze({now, charaId:state.chara})); } catch(e){ console.error('art.js の吹き出しでエラー:', e); } g.restore(); }
+    else drawSecret(g, 520, 330, now);
+  }
 
   const sub = state.subs.find(s => t >= s.start && t < s.end);
   if (sub) drawText(g, sub.text, 1090, 64, 620, 'bottom');
@@ -709,6 +734,7 @@ function buildCharas(){
     const cc = c.getContext('2d');
     cc.fillStyle = '#F2F6F9'; cc.fillRect(0,0,144,144);
     drawChara(cc, ch.id, 72, 76, 44, 0, 1);
+    if (ch.art) Promise.resolve(ART.ready).catch(()=>{}).then(() => { cc.fillStyle = '#F2F6F9'; cc.fillRect(0,0,144,144); drawChara(cc, ch.id, 72, 76, 44, 0, 1); });
     b.append(c, document.createTextNode(ch.name));
     b.onclick = () => { state.chara = ch.id; [...box.children].forEach(x => x.setAttribute('aria-pressed', x === b)); };
     box.append(b);
@@ -1218,6 +1244,7 @@ async function exportVideo(){
   const mime = pickMime();
   if (!mime || !cv.captureStream){ msg('このブラウザは動画の書き出しに対応していません。最新のChromeかSafariで試してください。'); return; }
   ensureAudio(); if (actx.state === 'suspended') await actx.resume();
+  try { await ART.ready; } catch(e){}  // Codex 版の画像を読み終えてから録画する
   video.pause();
   if (Math.abs(video.currentTime - state.trimStart) > 0.01){ video.currentTime = state.trimStart; await once(video, 'seeked'); }
   const vs = cv.captureStream(30);
