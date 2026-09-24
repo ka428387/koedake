@@ -121,6 +121,11 @@ input[type=number]{width:5.2em;padding:6px 6px;text-align:right}
 .item.beep .del{justify-self:end}
 .item .sep{color:var(--muted);font-size:.8rem}
 .item button{padding:6px 10px;font-size:.8rem}
+.item button.adultBtn{margin-left:6px}
+.item.guess button.adultBtn{border-color:var(--coral);color:var(--coral);font-weight:700}
+.item button.adultBtn[aria-pressed="true"]{background:var(--ink);color:var(--card);border-color:var(--ink)}
+.item.adult input[type=text]{opacity:.55}
+.item.adult{background:transparent;border:1.5px dashed var(--line)}
 .item button.red{color:var(--coral);border-color:currentColor;margin-left:6px}
 
 .item.now{outline:2.5px solid var(--sun);outline-offset:0}
@@ -220,7 +225,7 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
 
       <section class="step">
         <h2><span class="num">3</span>字幕を付ける</h2>
-        <p class="hint">「しゃべっている所を見つける」を押すと、声のする部分ごとに字幕の枠が自動でできます。字幕を出したいところに文字を入れるだけ。文字を選んで「あか」を押すと、そこだけ赤色になります。</p>
+        <p class="hint">「しゃべっている所を見つける」を押すと、声のする部分ごとに字幕の枠が自動でできます。字幕を出したいところに文字を入れるだけ。文字を選んで「あか」を押すと、そこだけ赤色になります。親の声は「おとなの声」を押すと消せます。</p>
         <div class="row">
           <button class="primary" id="autoSub" disabled>しゃべっている所を見つける</button>
           <button id="addSub" disabled>ここから字幕を追加</button>
@@ -687,7 +692,7 @@ function render(now, t, level, inBeep){
     else drawSecret(g, sx, sy, now);
   }
 
-  const sub = state.subs.find(s => t >= s.start && t < s.end);
+  const sub = state.subs.find(s => !s.adult && t >= s.start && t < s.end);
   if (sub) drawText(g, sub.text, 1090, 64, 620, 'bottom');
 
   g.font = `700 24px ${FONT}`; g.textBaseline = 'middle'; g.fillStyle = 'rgba(37,49,59,0.45)';
@@ -710,15 +715,21 @@ function frame(ms){
     const rms = Math.sqrt(s/tbuf.length);
     target = Math.min(1, Math.max(0, (rms - 0.012) * 7));
     if (!scanning && liveOn()) addLive(t, rms);
-    if (state.chara === 'kimochi' && target > 0.08 && !scanning) pitch = estimatePitch(tbuf, actx.sampleRate);
+    if (target > 0.08 && !scanning && (state.chara === 'kimochi' || (!pcm16 && pitchSum))){
+      pitch = estimatePitch(tbuf, actx.sampleRate);
+      if (!pcm16) addPitch(t, pitch);
+    }
   }
   if (liveDirty && waveState === 'live' && !scanning && ms - liveBuilt > 300){ buildLive(); drawWave(); }
   const inBeep = !scanning && !video.paused && state.beeps.some(b => t >= b.start && t < b.end);
-  if (inBeep || scanning) target = 0;
+  // 「おとなの声」にした区間：音を消し、口も閉じる（吹き出しは出さない）
+  const inAdult = !scanning && !video.paused && state.subs.some(s => s.adult && t >= s.start && t < s.end);
+  const mute = inBeep || inAdult;
+  if (mute || scanning) target = 0;
   level += (target - level) * (target > level ? 0.55 : 0.22);
-  if (actx && inBeep !== beepOn){
-    mainGain.gain.setTargetAtTime(inBeep ? 0 : 1, actx.currentTime, 0.015);
-    beepOn = inBeep;
+  if (actx && mute !== beepOn){
+    mainGain.gain.setTargetAtTime(mute ? 0 : 1, actx.currentTime, 0.015);
+    beepOn = mute;
   }
   if (state.chara === 'kimochi') updateKimochi(now, target, pitch, inBeep);
   render(now, t, level, inBeep);
@@ -785,7 +796,8 @@ function renderLists(){
       if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229){
         e.preventDefault();
         const i = state.subs.indexOf(s);
-        if (i < state.subs.length - 1) playSub(i + 1);
+        const next = state.subs.findIndex((x, j) => j > i && !x.adult);
+        if (next >= 0) playSub(next);
         else { txt.blur(); msg('字幕の入力が終わりました。プレビューで確認してみてください。', 'subMsg'); }
       }
     };
@@ -809,7 +821,18 @@ function renderLists(){
     const b = numInput(s.end, v => { s.end = Math.max(v, s.start + 0.1); });
     const tm = document.createElement('span'); tm.className = 'tm';
     const lbl = document.createElement('span'); lbl.className='sep'; lbl.textContent='秒';
-    tm.append(a, sep, b, lbl, red);
+    const adult = document.createElement('button'); adult.type='button'; adult.className='adultBtn';
+    const paintAdult = () => {
+      row.classList.toggle('adult', !!s.adult); row.classList.toggle('guess', !s.adult && !!s.adultGuess);
+      adult.textContent = s.adult ? '消しています' : s.adultGuess ? 'おとなの声かも' : 'おとなの声';
+      adult.setAttribute('aria-pressed', !!s.adult);
+      adult.setAttribute('aria-label', s.adult ? 'この部分の音を消しています。押すと元に戻します' : 'この部分を大人の声として消す');
+      txt.disabled = !!s.adult; txt.placeholder = s.adult ? 'おとなの声（音を消しています）' : '聞こえたとおりに入力';
+      red.style.display = s.adult ? 'none' : '';
+    };
+    adult.onclick = () => { s.adult = !s.adult; paintAdult(); };
+    paintAdult();
+    tm.append(a, sep, b, lbl, red, adult);
     row.append(go, txt, del, tm);
     sl.append(row);
     s._input = txt;
@@ -866,8 +889,40 @@ function setEnvFrom(ev, dt){
 const LDT = 0.02;
 let liveAcc = null, liveCnt = null, liveDirty = false, liveBuilt = 0;
 function initLive(d){
-  if (!d || !isFinite(d)) { liveAcc = liveCnt = null; return; }
+  if (!d || !isFinite(d)) { liveAcc = liveCnt = pitchSum = pitchCnt = null; return; }
   const N = Math.ceil(d/LDT); liveAcc = new Float32Array(N); liveCnt = new Uint16Array(N);
+  pitchSum = new Float32Array(N); pitchCnt = new Uint16Array(N);
+}
+/* 声の高さ（大人の声らしさの目安）。一括で読めた動画は pcm16 から、読めない動画は再生中・早送り中に聞いた高さから */
+let pitchSum = null, pitchCnt = null, pcm16 = null;
+const ADULT_HZ = 205;  // これより低い声を「大人の声かも」とする（お父さんはほぼ下回る。お母さんや高い声は重なる）
+function addPitch(t, hz){
+  if (!pitchSum || !(hz > 0)) return;
+  const i = Math.floor(t/LDT); if (i < 0 || i >= pitchSum.length) return;
+  pitchSum[i] += hz; pitchCnt[i]++;
+}
+function makePcm16(ch, sr){
+  const step = sr/16000, n = Math.floor(ch.length/step), out = new Float32Array(n);
+  for (let i=0;i<n;i++){ const a = Math.floor(i*step), b = Math.max(a+1, Math.floor((i+1)*step)); let q = 0; for (let j=a;j<b;j++) q += ch[j]; out[i] = q/(b-a); }
+  return out;
+}
+function segPitch(a, b){
+  const vals = [];
+  if (pcm16){
+    const win = 1024, buf = new Float32Array(win);
+    for (let t=a; t + win/16000 <= b; t += 0.04){
+      const i0 = Math.floor(t*16000); if (i0 + win > pcm16.length) break;
+      let q = 0; for (let k=0;k<win;k++){ buf[k] = pcm16[i0+k]; q += buf[k]*buf[k]; }
+      if (Math.sqrt(q/win) < 0.01) continue;
+      const hz = estimatePitch(buf, 16000); if (hz > 0) vals.push(hz);
+    }
+  } else if (pitchSum){
+    const i0 = Math.max(0, Math.floor(a/LDT)), i1 = Math.min(pitchSum.length, Math.ceil(b/LDT));
+    for (let i=i0;i<i1;i++) if (pitchCnt[i]) vals.push(pitchSum[i]/pitchCnt[i]);
+  }
+  if (vals.length < 3) return 0;
+  vals.sort((x,y) => x-y);
+  return vals[vals.length >> 1];
 }
 function liveOn(){ return liveAcc && (waveState === 'loading' || waveState === 'live'); }
 function addLive(t, rms){
@@ -912,6 +967,7 @@ async function buildWave(file){
   }
   if (buf){
     const ch = buf.getChannelData(0);
+    pcm16 = makePcm16(ch, buf.sampleRate);
     const fl = Math.round(buf.sampleRate * 0.02), nf = Math.ceil(ch.length / fl);
     const ev = new Float32Array(nf);
     for (let i=0;i<nf;i++){ let q = 0, c = 0; for (let j=i*fl; j<Math.min(ch.length,(i+1)*fl); j+=2){ q += ch[j]*ch[j]; c++; } ev[i] = c ? Math.sqrt(q/c) : 0; }
@@ -942,6 +998,7 @@ async function scanAudio(t0, t1){
       analyser.getFloatTimeDomainData(tbuf);
       let q = 0; for (let i=0;i<tbuf.length;i++) q += tbuf[i]*tbuf[i];
       addLive(t, Math.sqrt(q/tbuf.length));
+      if (Math.sqrt(q/tbuf.length) > 0.02) addPitch(t, estimatePitch(tbuf, actx.sampleRate));
       $('waveLoad').textContent = '声を読み取り中… ' + Math.round(Math.min(1, (t-t0)/(t1-t0))*100) + '%';
       if (video.ended || video.paused || t >= t1 - 0.02) return res();
       requestAnimationFrame(tick);
@@ -1028,15 +1085,16 @@ async function autoSubs(){
   if (!segs.length){ msg('声の部分が見つかりませんでした。使う範囲を確認してください。', 'subMsg'); return; }
   const filled = state.subs.filter(s => s.text.trim());
   if (filled.length && !confirm('入力済みの字幕はそのまま残し、重ならない部分にだけ枠を追加します。よろしいですか？')) return;
-  state.subs = state.subs.filter(s => s.text.trim());
-  let added = 0;
+  state.subs = state.subs.filter(s => s.text.trim() || s.adult);
+  let added = 0, guessed = 0;
   for (const [a,b] of segs){
     if (state.subs.some(s => a < s.end && b > s.start)) continue;
-    state.subs.push({start:a, end:b, text:''}); added++;
+    const hz = segPitch(a, b), adultGuess = hz > 0 && hz < ADULT_HZ;
+    state.subs.push({start:a, end:b, text:'', adultGuess}); added++; if (adultGuess) guessed++;
   }
   renderLists();
-  msg(added + 'か所見つけました。1つめを再生します。', 'subMsg');
-  const first = state.subs.findIndex(s => !s.text.trim());
+  msg(added + 'か所見つけました。' + (guessed ? `低い声（大人の声かも）が${guessed}か所あります。消すときは「おとなの声かも」を押してください。` : '') + '1つめを再生します。', 'subMsg');
+  const first = state.subs.findIndex(s => !s.text.trim() && !s.adult && !s.adultGuess);
   if (first >= 0) playSub(first);
 }
 
@@ -1111,7 +1169,7 @@ function wire(){
     video.src = URL.createObjectURL(f);
     $('fileName').textContent = f.name;
     bump('lastType', f.type || (f.name.split('.').pop() || '').toLowerCase());
-    hasMedia = false; liveAcc = liveCnt = null; liveDirty = false; $('trimBox').style.display = 'none'; buildWave(f);
+    hasMedia = false; liveAcc = liveCnt = pitchSum = pitchCnt = pcm16 = null; liveDirty = false; $('trimBox').style.display = 'none'; buildWave(f);
     state.subs = []; state.beeps = []; renderLists();
     $('result').style.display = 'none'; msg(''); msg('', 'subMsg'); msg('', 'loadMsg');
   };
