@@ -131,8 +131,10 @@ input[type=number]{width:5.2em;padding:6px 6px;text-align:right}
 .item.sub .go{grid-area:go}.item.sub input[type=text]{grid-area:txt}.item.sub .del{grid-area:del}
 .item.sub .tm{grid-area:tm;display:flex;align-items:center;gap:6px;font-size:.85rem}
 .item.sub .tm input{font-size:.85rem;padding:3px 6px;width:4.6em}
-.item.beep{grid-template-columns:auto auto auto auto auto 1fr}
-.item.beep .del{justify-self:end}
+.item.beep{grid-template-columns:auto 1fr auto;grid-template-areas:"go tag del" ". tm tm";background:transparent;border:1.5px dashed var(--line)}
+.item.beep button:first-child{grid-area:go}.item.beep .beepTag{grid-area:tag;font-size:.85rem;font-weight:700}.item.beep .del{grid-area:del}
+.item.beep .tm{grid-area:tm;display:flex;align-items:center;gap:6px;font-size:.85rem}
+.item.beep .tm input{font-size:.85rem;padding:3px 6px;width:4.6em}
 .item .sep{color:var(--muted);font-size:.8rem}
 .item button{padding:6px 10px;font-size:.8rem}
 .item button.adultBtn{white-space:nowrap}
@@ -243,24 +245,18 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
 
       <section class="step pro">
         <h2><span class="num">3</span>字幕を付ける</h2>
-        <p class="hint">「しゃべっている所を見つける」を押すと、声のする部分ごとに字幕の枠が自動でできます。親の声など動画に入れたくない声は、その枠の「この声を消す」で消せます（低い声には「大人の声かも」の印が付きます）。</p>
+        <p class="hint">「しゃべっている所を見つける」を押すと、声のする部分ごとに字幕の枠が自動でできます。親の声など入れたくない声は、その枠の「この声を消す」で消せます（低い声には「大人の声かも」の印が付きます）。名前などを少しだけ消したいときは、その場所で「ここだけ消す」を押すと、音が消えて「ないしょ」の吹き出しが出ます。</p>
         <div class="row">
           <button class="primary" id="autoSub" disabled>しゃべっている所を見つける</button>
           <button id="addSub" disabled>手動で字幕を追加</button>
+          <button id="addBeep" disabled>ここだけ消す</button>
         </div>
         <p class="stepMsg" id="subMsg" role="status"></p>
         <div class="list" id="subList"></div>
       </section>
 
-      <section class="step pro">
-        <h2><span class="num">4</span>無音にする</h2>
-        <p class="hint">名前や地名が聞こえるところで「ここを無音にする」を押すと、その部分の音が消えて、キャラクターに「ないしょ」の吹き出しが出ます。時間は数字で細かく直せます。</p>
-        <button id="addBeep" disabled>ここを無音にする</button>
-        <div class="list" id="beepList"></div>
-      </section>
-
       <section class="step">
-        <h2><span class="num" id="exportNum">5</span>動画にして保存</h2>
+        <h2><span class="num" id="exportNum">4</span>動画にして保存</h2>
         <p class="hint">縦長（9:16）の動画にします。書き出しは動画の長さと同じだけ時間がかかります。そのあいだ画面を開いたままにしてください。</p>
         <div class="row">
           <button class="primary" id="exportBtn" disabled>動画を書き出す</button>
@@ -353,13 +349,13 @@ const state = { chara:'obake', bg:BGS[0], title:'', subs:[], beeps:[], trimStart
 let endResolver = null, playFrom = 0;
 // 作り方のタブ「こだわり」（字幕・親の声を消す・ないしょ）。「しんぷる」のときは画面に出さず、書き出しにも使わない。タイトルはどちらでも使える
 let proOn = false;
-try { proOn = localStorage.getItem('papetalk-pro') === '1'; } catch(e){}
+// 立ち上げたときはいつも「しんぷる」（2026-09-25 佳澄さん）。前回のタブは覚えない
 function setPro(on){
   proOn = !!on;
   document.body.classList.toggle('pro-on', proOn);
-  $('exportNum').textContent = proOn ? '5' : '3';
+  $('exportNum').textContent = proOn ? '4' : '3';
   $('tabSimple').setAttribute('aria-selected', !proOn); $('tabPro').setAttribute('aria-selected', proOn);
-  $('modeNote').textContent = proOn ? '字幕・声を消す・無音にするも使えます' : '動画とキャラを選んで、書き出すだけ';
+  $('modeNote').textContent = proOn ? '字幕を付けたり、声を消したりもできます' : '動画とキャラを選んで、書き出すだけ';
 }
 let hasMedia = false, exporting = false, cancelExport = false;
 let lastBlob = null, lastExt = 'mp4';
@@ -924,7 +920,9 @@ function playSub(i, focus){
 function renderLists(){
   const sl = $('subList'); sl.innerHTML = '';
   state.subs.sort((a,b) => a.start - b.start);
-  if (!state.subs.length) sl.innerHTML = '<p class="empty">まだ字幕はありません。</p>';
+  // 字幕の枠と「ここだけ消す」を、時間の順に1つの一覧に並べる
+  const rows = [];
+  if (!state.subs.length && !state.beeps.length) sl.innerHTML = '<p class="empty">まだ字幕はありません。</p>';
   for (const s of state.subs){
     const row = document.createElement('div'); row.className = 'item sub';
     const go = document.createElement('button'); go.type='button'; go.className='go'; go.textContent = '▶'; go.setAttribute('aria-label','この部分を再生');
@@ -965,14 +963,13 @@ function renderLists(){
     const act = document.createElement('div'); act.className = 'act';
     act.append(adult, guess);
     row.append(go, txt, del, tm, act);
-    sl.append(row);
+    rows.push([s.start, row]);
     s._input = txt;
   }
-  const bl = $('beepList'); bl.innerHTML = '';
   state.beeps.sort((a,b) => a.start - b.start);
-  if (!state.beeps.length) bl.innerHTML = '<p class="empty">無音にした部分はまだありません。</p>';
   for (const s of state.beeps){
     const row = document.createElement('div'); row.className = 'item beep';
+    const tag = document.createElement('span'); tag.className = 'beepTag'; tag.textContent = 'ここだけ消す（ないしょ）';
     const go = document.createElement('button'); go.type='button'; go.textContent = '▶'; go.setAttribute('aria-label','少し前から確認');
     go.onclick = () => seekPlay(Math.max(0, s.start - 1));
     const sep = document.createElement('span'); sep.className='sep'; sep.textContent='〜';
@@ -981,9 +978,12 @@ function renderLists(){
     del.onclick = () => { state.beeps.splice(state.beeps.indexOf(s),1); renderLists(); };
     const a = numInput(s.start, v => { s.start = v; if (s.end <= v) s.end = v + 0.3; });
     const b = numInput(s.end, v => { s.end = Math.max(v, s.start + 0.1); });
-    row.append(go, a, sep, b, note, del);
-    bl.append(row);
+    const tm = document.createElement('span'); tm.className = 'tm';
+    tm.append(a, sep, b, note);
+    row.append(go, tag, del, tm);
+    rows.push([s.start, row]);
   }
+  rows.sort((x, y) => x[0] - y[0]).forEach(([, row]) => sl.append(row));
 }
 
 function updateTrim(){
@@ -1430,7 +1430,7 @@ function wire(){
   sk.oninput = () => { seeking = true; video.currentTime = parseFloat(sk.value); };
   sk.onchange = () => { seeking = false; };
   $('title').oninput = e => { state.title = e.target.value; };
-  const pickMode = on => { setPro(on); try { localStorage.setItem('papetalk-pro', proOn ? '1' : '0'); } catch(e){} };
+  const pickMode = on => setPro(on);
   $('tabSimple').onclick = () => pickMode(false);
   $('tabPro').onclick = () => pickMode(true);
   $('tabSimple').onkeydown = $('tabPro').onkeydown = e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight'){ pickMode(e.key === 'ArrowRight'); $(proOn ? 'tabPro' : 'tabSimple').focus(); } };
