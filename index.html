@@ -40,6 +40,12 @@ body{margin:0;background:var(--bg);color:var(--ink);
 header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:4px 0 20px}
 header h1{margin:0;font-size:2.4rem;font-weight:900;letter-spacing:.04em;line-height:1.1}
 header p{margin:0;color:var(--muted);font-size:.95rem}
+body:not(.pro-on) .pro{display:none}
+.gear{margin-left:auto;align-self:center;width:40px;height:40px;padding:0;font-size:1.25rem;line-height:1;display:grid;place-items:center}
+.settings{background:var(--card);border:1.5px solid var(--line);border-radius:18px;padding:14px 16px 4px;margin:-8px 0 16px}
+.switch{display:flex;align-items:center;gap:10px;font-weight:700;cursor:pointer}
+.switch input{width:22px;height:22px;accent-color:var(--coral)}
+.settings .hint{margin:8px 0 10px}
 .badge{font-size:.75rem;border:1.5px solid var(--line);border-radius:999px;padding:1px 10px;color:var(--muted)}
 .layout{display:grid;gap:24px}
 @media(min-width:880px){
@@ -162,7 +168,12 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
     <h1>ぱぺとーく</h1>
     <p>子どもの声はそのままに、顔は出さずに。</p>
     <span class="badge">試作版</span>
+    <button type="button" class="gear" id="gearBtn" aria-label="設定" aria-expanded="false" aria-controls="settings">⚙︎</button>
   </header>
+  <div class="settings" id="settings" hidden>
+    <label class="switch"><input type="checkbox" id="proMode"><span>こだわりモード</span></label>
+    <p class="hint">字幕・親の声を消す・名前などを消す（ないしょ）・タイトルが使えるようになります。ふだんはオフのままで大丈夫です。</p>
+  </div>
 
   <div class="layout">
     <div class="stageCol">
@@ -218,12 +229,12 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
         <h2><span class="num">2</span>キャラクターと背景</h2>
         <div class="charas" id="charas" role="group" aria-label="キャラクター"></div>
         <div class="swatches" id="swatches" role="group" aria-label="背景の色"></div>
-        <label class="field">上に出すタイトル（なくてもOK）
+        <label class="field pro">上に出すタイトル（なくてもOK）
           <input type="text" id="title" placeholder="例：3さい、朝ごはんの報告">
         </label>
       </section>
 
-      <section class="step">
+      <section class="step pro">
         <h2><span class="num">3</span>字幕を付ける</h2>
         <p class="hint">「しゃべっている所を見つける」を押すと、声のする部分ごとに字幕の枠が自動でできます。字幕を出したいところに文字を入れるだけ。文字を選んで「あか」を押すと、そこだけ赤色になります。親の声は「おとなの声」を押すと消せます。</p>
         <div class="row">
@@ -234,7 +245,7 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
         <div class="list" id="subList"></div>
       </section>
 
-      <section class="step">
+      <section class="step pro">
         <h2><span class="num">4</span>名前などを消す（必要なときだけ）</h2>
         <p class="hint">名前や地名が聞こえるところで「ここを無音にする」を押すと、その部分の音が消えて、キャラクターに「ないしょ」の吹き出しが出ます。時間は数字で細かく直せます。</p>
         <button id="addBeep" disabled>ここを無音にする</button>
@@ -242,7 +253,7 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
       </section>
 
       <section class="step">
-        <h2><span class="num">5</span>動画にして保存</h2>
+        <h2><span class="num" id="exportNum">5</span>動画にして保存</h2>
         <p class="hint">縦長（9:16）の動画にします。書き出しは動画の長さと同じだけ時間がかかります。そのあいだ画面を開いたままにしてください。</p>
         <div class="row">
           <button class="primary" id="exportBtn" disabled>動画を書き出す</button>
@@ -331,6 +342,14 @@ const FONT = '"Zen Maru Gothic","Hiragino Maru Gothic ProN","Hiragino Sans",sans
 
 const state = { chara:'kuma', bg:BGS[0], title:'', subs:[], beeps:[], trimStart:0, trimEnd:0 };
 let endResolver = null, playFrom = 0;
+// こだわりモード（字幕・親の声を消す・ないしょ・タイトル）。オフのときは画面に出さず、書き出しにも使わない
+let proOn = false;
+try { proOn = localStorage.getItem('papetalk-pro') === '1'; } catch(e){}
+function setPro(on){
+  proOn = !!on;
+  document.body.classList.toggle('pro-on', proOn);
+  $('exportNum').textContent = proOn ? '5' : '3';
+}
 let hasMedia = false, exporting = false, cancelExport = false;
 let lastBlob = null, lastExt = 'mp4';
 
@@ -666,7 +685,7 @@ function render(now, t, level, inBeep){
   g.fillStyle = 'rgba(255,255,255,0.4)';
   for (const d of dots){ ellipse(g, d.x, d.y, d.r, d.r); g.fill(); }
 
-  drawText(g, state.title, 200, 56, 600, 'top');
+  if (proOn) drawText(g, state.title, 200, 56, 600, 'top');
 
   const ac = artChara(state.chara);
   if (state.chara === 'kimochi') drawKimochi(g, now, level);
@@ -692,7 +711,7 @@ function render(now, t, level, inBeep){
     else drawSecret(g, sx, sy, now);
   }
 
-  const sub = state.subs.find(s => !s.adult && t >= s.start && t < s.end);
+  const sub = proOn && state.subs.find(s => !s.adult && t >= s.start && t < s.end);
   if (sub) drawText(g, sub.text, 1090, 64, 620, 'bottom');
 
   g.font = `700 24px ${FONT}`; g.textBaseline = 'middle'; g.fillStyle = 'rgba(37,49,59,0.45)';
@@ -728,9 +747,9 @@ function frameBody(ms){
     }
   }
   if (liveDirty && waveState === 'live' && !scanning && ms - liveBuilt > 300){ buildLive(); drawWave(); }
-  const inBeep = !scanning && !video.paused && state.beeps.some(b => t >= b.start && t < b.end);
+  const inBeep = proOn && !scanning && !video.paused && state.beeps.some(b => t >= b.start && t < b.end);
   // 「おとなの声」にした区間：音を消し、口も閉じる（吹き出しは出さない）
-  const inAdult = !scanning && !video.paused && state.subs.some(s => s.adult && t >= s.start && t < s.end);
+  const inAdult = proOn && !scanning && !video.paused && state.subs.some(s => s.adult && t >= s.start && t < s.end);
   const mute = inBeep || inAdult;
   if (mute || scanning) target = 0;
   level += (target - level) * (target > level ? 0.55 : 0.22);
@@ -1310,6 +1329,10 @@ function wire(){
   sk.oninput = () => { seeking = true; video.currentTime = parseFloat(sk.value); };
   sk.onchange = () => { seeking = false; };
   $('title').oninput = e => { state.title = e.target.value; };
+  $('gearBtn').onclick = () => { const open = $('settings').hidden; $('settings').hidden = !open; $('gearBtn').setAttribute('aria-expanded', open); };
+  $('proMode').checked = proOn;
+  $('proMode').onchange = () => { setPro($('proMode').checked); try { localStorage.setItem('papetalk-pro', proOn ? '1' : '0'); } catch(e){} };
+  setPro(proOn);
   $('autoSub').onclick = autoSubs;
   $('waveLoad').addEventListener('pointerdown', e => e.stopPropagation());
   $('addSub').onclick = () => {
