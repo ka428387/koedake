@@ -126,19 +126,14 @@ input[type=text],input[type=number]{font:inherit;color:var(--ink);background:var
 input[type=number]{width:5.2em;padding:6px 6px;text-align:right}
 .list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .item{display:grid;gap:6px 8px;align-items:center;background:var(--field);border-radius:14px;padding:8px}
-.item.sub{grid-template-columns:auto 1fr auto;grid-template-areas:"go txt del" ". tm tm" ". act act"}
-.item.sub .act{grid-area:act;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.item.sub{grid-template-columns:auto 1fr auto;grid-template-areas:"go txt del" ". tm tm"}
 .item.sub .go{grid-area:go}.item.sub input[type=text]{grid-area:txt}.item.sub .del{grid-area:del}
-.item.sub .tm{grid-area:tm;display:flex;align-items:center;gap:6px;font-size:.85rem}
-.item.sub .tm input{font-size:.85rem;padding:3px 6px;width:4.6em}
-.item.beep{grid-template-columns:auto 1fr auto;grid-template-areas:"go tag del" ". tm tm";background:transparent;border:1.5px dashed var(--line)}
-.item.beep button:first-child{grid-area:go}.item.beep .beepTag{grid-area:tag;font-size:.85rem;font-weight:700}.item.beep .del{grid-area:del}
-.item.beep .tm{grid-area:tm;display:flex;align-items:center;gap:6px;font-size:.85rem}
-.item.beep .tm input{font-size:.85rem;padding:3px 6px;width:4.6em}
+.item.sub .tm{grid-area:tm;display:flex;align-items:center;gap:6px;font-size:.85rem;flex-wrap:wrap}
+.item.sub .tm input{font-size:.85rem;padding:3px 6px;width:3.9em}
 .item .sep{color:var(--muted);font-size:.8rem}
 .item button{padding:6px 10px;font-size:.8rem}
-.item button.adultBtn{white-space:nowrap}
-.guessTag{font-size:.78rem;font-weight:700;color:var(--coral);white-space:nowrap}
+.item button.adultBtn{white-space:nowrap;margin-left:auto}
+.item.guess input[type=text]::placeholder{color:var(--coral);font-weight:700;opacity:1}
 .item button.adultBtn[aria-pressed="true"]{background:var(--ink);color:var(--card);border-color:var(--ink)}
 .item.adult input[type=text]{opacity:.55}
 .item.adult{background:transparent;border:1.5px dashed var(--line)}
@@ -245,11 +240,10 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
 
       <section class="step pro">
         <h2><span class="num">3</span>字幕を付ける</h2>
-        <p class="hint">「しゃべっている所を見つける」を押すと、声のする部分ごとに字幕の枠が自動でできます。親の声など入れたくない声は、その枠の「この声を消す」で消せます（低い声には「大人の声かも」の印が付きます）。名前などを少しだけ消したいときは、その場所で「ここだけ消す」を押すと、音が消えて「ないしょ」の吹き出しが出ます。</p>
+        <p class="hint">「しゃべっている所を見つける」を押すと、声のする部分ごとに字幕の枠が自動でできます。親の声など入れたくない声は、その枠の「この声を消す」で消せます（低い声の枠には「大人の声かも？」と出ます）。</p>
         <div class="row">
           <button class="primary" id="autoSub" disabled>しゃべっている所を見つける</button>
           <button id="addSub" disabled>手動で字幕を追加</button>
-          <button id="addBeep" disabled>ここだけ消す</button>
         </div>
         <p class="stepMsg" id="subMsg" role="status"></p>
         <div class="list" id="subList"></div>
@@ -852,7 +846,7 @@ function frameBody(ms){
     }
   }
   if (liveDirty && waveState === 'live' && !scanning && ms - liveBuilt > 300){ buildLive(); drawWave(); }
-  const inBeep = proOn && !scanning && !video.paused && state.beeps.some(b => t >= b.start && t < b.end);
+  const inBeep = false;  // 「ないしょ」（ここだけ消す）はやめた（2026-09-25 佳澄さん）。吹き出しの描き方は残してある
   // 「おとなの声」にした区間：音を消し、口も閉じる（吹き出しは出さない）
   const inAdult = proOn && !scanning && !video.paused && state.subs.some(s => s.adult && t >= s.start && t < s.end);
   const mute = inBeep || inAdult;
@@ -920,9 +914,8 @@ function playSub(i, focus){
 function renderLists(){
   const sl = $('subList'); sl.innerHTML = '';
   state.subs.sort((a,b) => a.start - b.start);
-  // 字幕の枠と「ここだけ消す」を、時間の順に1つの一覧に並べる
   const rows = [];
-  if (!state.subs.length && !state.beeps.length) sl.innerHTML = '<p class="empty">まだ字幕はありません。</p>';
+  if (!state.subs.length) sl.innerHTML = '<p class="empty">まだ字幕はありません。</p>';
   for (const s of state.subs){
     const row = document.createElement('div'); row.className = 'item sub';
     const go = document.createElement('button'); go.type='button'; go.className='go'; go.textContent = '▶'; go.setAttribute('aria-label','この部分を再生');
@@ -947,41 +940,22 @@ function renderLists(){
     const tm = document.createElement('span'); tm.className = 'tm';
     const lbl = document.createElement('span'); lbl.className='sep'; lbl.textContent='秒';
     // 「この声を消す」＝動画に入れたくない声（親の声など）を消すボタン。「大人の声かも」は低い声に付く目印（ボタンとは別）
-    const guess = document.createElement('span'); guess.className = 'guessTag'; guess.textContent = '大人の声かも';
+    // 「この声を消す」は秒数の横。低い声の枠は入力欄に「大人の声かも？」と出す
     const adult = document.createElement('button'); adult.type='button'; adult.className='adultBtn';
     const paintAdult = () => {
       row.classList.toggle('adult', !!s.adult); row.classList.toggle('guess', !s.adult && !!s.adultGuess);
-      guess.hidden = !s.adultGuess || !!s.adult;
-      adult.textContent = s.adult ? '消しました（もどす）' : 'この声を消す';
+      adult.textContent = s.adult ? 'もどす' : 'この声を消す';
       adult.setAttribute('aria-pressed', !!s.adult);
       adult.setAttribute('aria-label', s.adult ? 'この声は消しています。押すと元に戻します' : 'この部分の声を消す');
-      txt.disabled = !!s.adult; txt.placeholder = s.adult ? 'この声は消しています' : '聞こえたとおりに入力';
+      txt.disabled = !!s.adult;
+      txt.placeholder = s.adult ? 'この声は消しています' : s.adultGuess ? '大人の声かも？' : '聞こえたとおりに入力';
     };
     adult.onclick = () => { s.adult = !s.adult; paintAdult(); };
     paintAdult();
-    tm.append(a, sep, b, lbl);
-    const act = document.createElement('div'); act.className = 'act';
-    act.append(adult, guess);
-    row.append(go, txt, del, tm, act);
+    tm.append(a, sep, b, lbl, adult);
+    row.append(go, txt, del, tm);
     rows.push([s.start, row]);
     s._input = txt;
-  }
-  state.beeps.sort((a,b) => a.start - b.start);
-  for (const s of state.beeps){
-    const row = document.createElement('div'); row.className = 'item beep';
-    const tag = document.createElement('span'); tag.className = 'beepTag'; tag.textContent = 'ここだけ消す（ないしょ）';
-    const go = document.createElement('button'); go.type='button'; go.textContent = '▶'; go.setAttribute('aria-label','少し前から確認');
-    go.onclick = () => seekPlay(Math.max(0, s.start - 1));
-    const sep = document.createElement('span'); sep.className='sep'; sep.textContent='〜';
-    const note = document.createElement('span'); note.className='sep'; note.textContent='秒';
-    const del = document.createElement('button'); del.type='button'; del.className='del'; del.textContent='削除';
-    del.onclick = () => { state.beeps.splice(state.beeps.indexOf(s),1); renderLists(); };
-    const a = numInput(s.start, v => { s.start = v; if (s.end <= v) s.end = v + 0.3; });
-    const b = numInput(s.end, v => { s.end = Math.max(v, s.start + 0.1); });
-    const tm = document.createElement('span'); tm.className = 'tm';
-    tm.append(a, sep, b, note);
-    row.append(go, tag, del, tm);
-    rows.push([s.start, row]);
   }
   rows.sort((x, y) => x[0] - y[0]).forEach(([, row]) => sl.append(row));
 }
@@ -1320,7 +1294,7 @@ async function autoSubs(){
     state.subs.push({start:a, end:b, text:'', adultGuess}); added++; if (adultGuess) guessed++;
   }
   renderLists();
-  msg(added + 'か所見つけました。' + (guessed ? `低い声（大人の声かも）が${guessed}か所あります。入れたくない声は「この声を消す」を押してください。` : '') + '1つめを再生します。', 'subMsg');
+  msg(added + 'か所見つけました。' + (guessed ? `低い声（大人の声かも？）が${guessed}か所あります。入れたくない声は「この声を消す」を押してください。` : '') + '1つめを再生します。', 'subMsg');
   const first = state.subs.findIndex(s => !s.text.trim() && !s.adult && !s.adultGuess);
   if (first >= 0) playSub(first);
 }
@@ -1406,7 +1380,7 @@ function wire(){
     state.trimStart = 0; state.trimEnd = video.duration || 0;
     initLive(video.duration);
     $('trimBox').style.display = 'block'; updateTrim(); drawWave();
-    ['playBtn','seek','autoSub','addSub','addBeep','exportBtn','setIn','setOut','trimIn','trimOut','trimReset'].forEach(id => $(id).disabled = false);
+    ['playBtn','seek','autoSub','addSub','exportBtn','setIn','setOut','trimIn','trimOut','trimReset'].forEach(id => $(id).disabled = false);
   };
   video.onerror = () => { msg('この動画は読み込めませんでした。別の形式の動画で試してください。', 'loadMsg'); };
   // Safari は一時停止中も最後の音のかけらを繰り返し鳴らすことがあるので、止めたら音の経路ごと止める
@@ -1442,10 +1416,6 @@ function wire(){
     const s = {start:t, end:Math.min(t + 2.5, video.duration || t + 2.5), text:''};
     state.subs.push(s); video.pause(); renderLists();
     s._input && s._input.focus();
-  };
-  $('addBeep').onclick = () => {
-    const t = Math.max(state.trimStart, video.currentTime - 0.2);
-    state.beeps.push({start:t, end:t + 0.7}); renderLists();
   };
   $('setIn').onclick = () => { state.trimStart = Math.min(video.currentTime, state.trimEnd - 0.5); updateTrim(); };
   $('setOut').onclick = () => { state.trimEnd = Math.max(video.currentTime, state.trimStart + 0.5); video.pause(); updateTrim(); };
@@ -1550,7 +1520,7 @@ async function exportVideo(){
   recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
   const stopped = once(recorder, 'stop');
   exporting = true; cancelExport = false;
-  ['playBtn','seek','autoSub','addSub','addBeep','exportBtn','setIn','setOut','trimIn','trimOut','trimReset'].forEach(id => $(id).disabled = true);
+  ['playBtn','seek','autoSub','addSub','exportBtn','setIn','setOut','trimIn','trimOut','trimReset'].forEach(id => $(id).disabled = true);
   $('cancelBtn').style.display = ''; $('progress').style.display = 'block';
   $('result').style.display = 'none';
   msg('書き出し中です。終わるまで画面を開いたままにしてください。');
@@ -1565,7 +1535,7 @@ async function exportVideo(){
   vs.getTracks().forEach(t => t.stop());
   exporting = false;
   if (video.paused){ outGain.gain.setValueAtTime(0, actx.currentTime); actx.suspend().catch(()=>{}); }
-  ['playBtn','seek','autoSub','addSub','addBeep','exportBtn','setIn','setOut','trimIn','trimOut','trimReset'].forEach(id => $(id).disabled = false);
+  ['playBtn','seek','autoSub','addSub','exportBtn','setIn','setOut','trimIn','trimOut','trimReset'].forEach(id => $(id).disabled = false);
   $('cancelBtn').style.display = 'none'; $('progress').style.display = 'none';
   if (cancelExport){ msg('書き出しをやめました。'); return; }
   const type = mime.split(';')[0];
