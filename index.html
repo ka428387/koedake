@@ -126,7 +126,8 @@ input[type=text],input[type=number]{font:inherit;color:var(--ink);background:var
 input[type=number]{width:5.2em;padding:6px 6px;text-align:right}
 .list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .item{display:grid;gap:6px 8px;align-items:center;background:var(--field);border-radius:14px;padding:8px}
-.item.sub{grid-template-columns:auto 1fr auto;grid-template-areas:"go txt del" ". tm tm"}
+.item.sub{grid-template-columns:auto 1fr auto;grid-template-areas:"go txt del" ". tm tm" ". act act"}
+.item.sub .act{grid-area:act;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .item.sub .go{grid-area:go}.item.sub input[type=text]{grid-area:txt}.item.sub .del{grid-area:del}
 .item.sub .tm{grid-area:tm;display:flex;align-items:center;gap:6px;font-size:.85rem}
 .item.sub .tm input{font-size:.85rem;padding:3px 6px;width:4.6em}
@@ -134,12 +135,11 @@ input[type=number]{width:5.2em;padding:6px 6px;text-align:right}
 .item.beep .del{justify-self:end}
 .item .sep{color:var(--muted);font-size:.8rem}
 .item button{padding:6px 10px;font-size:.8rem}
-.item button.adultBtn{margin-left:6px}
-.item.guess button.adultBtn{border-color:var(--coral);color:var(--coral);font-weight:700}
+.item button.adultBtn{white-space:nowrap}
+.guessTag{font-size:.78rem;font-weight:700;color:var(--coral);white-space:nowrap}
 .item button.adultBtn[aria-pressed="true"]{background:var(--ink);color:var(--card);border-color:var(--ink)}
 .item.adult input[type=text]{opacity:.55}
 .item.adult{background:transparent;border:1.5px dashed var(--line)}
-.item button.red{color:var(--coral);border-color:currentColor;margin-left:6px}
 
 .item.now{outline:2.5px solid var(--sun);outline-offset:0}
 .item input[type=text]{font-size:1rem}
@@ -243,17 +243,17 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
 
       <section class="step pro">
         <h2><span class="num">3</span>字幕を付ける</h2>
-        <p class="hint">「しゃべっている所を見つける」を押すと、声のする部分ごとに字幕の枠が自動でできます。字幕を出したいところに文字を入れるだけ。文字を選んで「あか」を押すと、そこだけ赤色になります。親の声は「おとなの声」を押すと消せます。</p>
+        <p class="hint">「しゃべっている所を見つける」を押すと、声のする部分ごとに字幕の枠が自動でできます。親の声など動画に入れたくない声は、その枠の「この声を消す」で消せます（低い声には「大人の声かも」の印が付きます）。</p>
         <div class="row">
           <button class="primary" id="autoSub" disabled>しゃべっている所を見つける</button>
-          <button id="addSub" disabled>ここから字幕を追加</button>
+          <button id="addSub" disabled>手動で字幕を追加</button>
         </div>
         <p class="stepMsg" id="subMsg" role="status"></p>
         <div class="list" id="subList"></div>
       </section>
 
       <section class="step pro">
-        <h2><span class="num">4</span>名前などを消す（必要なときだけ）</h2>
+        <h2><span class="num">4</span>無音にする</h2>
         <p class="hint">名前や地名が聞こえるところで「ここを無音にする」を押すと、その部分の音が消えて、キャラクターに「ないしょ」の吹き出しが出ます。時間は数字で細かく直せます。</p>
         <button id="addBeep" disabled>ここを無音にする</button>
         <div class="list" id="beepList"></div>
@@ -333,7 +333,7 @@ for (const ch of ART_CHARAS) CHARAS.push({id: ch.id, name: String(ch.name || ch.
 function artChara(id){ return ART_CHARAS.find(ch => ch.id === id); }
 // 「ないしょ」吹き出しの置き場所。Codex 版のキャラは secretAt: {x, y}（キャラの中心から見た位置）で変えられる
 function secretPos(ac){
-  if (state.chara === 'obake') return [190, 290];  // おばけは頭が左寄りで大きいので、左上に出す
+  if (state.chara === 'obake') return [540, 330];  // おばけは頭の右上に少し離して出す（2026-09-25 佳澄さんが候補から選んだ位置）
   const p = ac && ac.secretAt;
   if (p && isFinite(p.x) && isFinite(p.y)) return [W/2 + Math.max(-240, Math.min(240, p.x)), 600 + Math.max(-340, Math.min(300, p.y))];
   return [520, 330];
@@ -359,7 +359,7 @@ function setPro(on){
   document.body.classList.toggle('pro-on', proOn);
   $('exportNum').textContent = proOn ? '5' : '3';
   $('tabSimple').setAttribute('aria-selected', !proOn); $('tabPro').setAttribute('aria-selected', proOn);
-  $('modeNote').textContent = proOn ? '字幕・親の声を消す・ないしょも使えます' : '動画とキャラを選んで、書き出すだけ';
+  $('modeNote').textContent = proOn ? '字幕・声を消す・無音にするも使えます' : '動画とキャラを選んで、書き出すだけ';
 }
 let hasMedia = false, exporting = false, cancelExport = false;
 let lastBlob = null, lastExt = 'mp4';
@@ -483,24 +483,6 @@ function parseMarked(text){
     if (ch === '*' || ch === '＊'){ hi = !hi; continue; }
     out.push({c:ch, hi});
   }
-  return out;
-}
-// 選んだ部分（なければ全体）の赤を切り替える。a, b は入力欄の選択位置
-function toggleRed(text, a, b){
-  const chars = []; let hi = false, pos = 0, ca = null, cb = null;
-  for (const ch of text){
-    if (ca === null && pos >= a) ca = chars.length;
-    if (cb === null && pos >= b) cb = chars.length;
-    if (ch === '*' || ch === '＊') hi = !hi; else chars.push({c:ch, hi});
-    pos += ch.length;
-  }
-  if (ca === null) ca = chars.length; if (cb === null) cb = chars.length;
-  if (ca >= cb){ ca = 0; cb = chars.length; }
-  const allRed = chars.slice(ca, cb).every(x => x.hi);
-  for (let i=ca;i<cb;i++) chars[i].hi = !allRed;
-  let out = '', cur = false;
-  for (const x of chars){ if (x.hi !== cur){ out += '*'; cur = x.hi; } out += x.c; }
-  if (cur) out += '*';
   return out;
 }
 function layoutChars(c, chars, maxW){
@@ -960,38 +942,29 @@ function renderLists(){
       }
     };
     txt.onfocus = () => { document.querySelectorAll('#subList .item').forEach(r => r.classList.toggle('now', r === row)); };
-    // ボタンを押すと選択が消える端末があるので、選んだ範囲を覚えておく
-    s._sel = [0, 0];
-    const keepSel = () => { if (document.activeElement === txt) s._sel = [txt.selectionStart, txt.selectionEnd]; };
-    ['select','keyup','pointerup','input'].forEach(ev => txt.addEventListener(ev, keepSel));
-    txt._keepSel = keepSel;
-    const red = document.createElement('button'); red.type='button'; red.className='red'; red.textContent='あか'; red.setAttribute('aria-label','選んだ文字を赤くする');
-    red.addEventListener('mousedown', e => e.preventDefault());
-    red.onclick = () => {
-      const [a, b] = s._sel;
-      s.text = txt.value = toggleRed(txt.value, a, b);
-      s._sel = [0, 0];
-      if (video.paused && s.end > s.start) video.currentTime = Math.min(s.end - 0.05, s.start + 0.3);  // プレビューに今の字幕を出す
-    };
     const del = document.createElement('button'); del.type='button'; del.className='del'; del.textContent='削除';
     del.onclick = () => { state.subs.splice(state.subs.indexOf(s),1); renderLists(); };
     const a = numInput(s.start, v => { s.start = v; if (s.end <= v) s.end = v + 0.5; });
     const b = numInput(s.end, v => { s.end = Math.max(v, s.start + 0.1); });
     const tm = document.createElement('span'); tm.className = 'tm';
     const lbl = document.createElement('span'); lbl.className='sep'; lbl.textContent='秒';
+    // 「この声を消す」＝動画に入れたくない声（親の声など）を消すボタン。「大人の声かも」は低い声に付く目印（ボタンとは別）
+    const guess = document.createElement('span'); guess.className = 'guessTag'; guess.textContent = '大人の声かも';
     const adult = document.createElement('button'); adult.type='button'; adult.className='adultBtn';
     const paintAdult = () => {
       row.classList.toggle('adult', !!s.adult); row.classList.toggle('guess', !s.adult && !!s.adultGuess);
-      adult.textContent = s.adult ? '消しています' : s.adultGuess ? 'おとなの声かも' : 'おとなの声';
+      guess.hidden = !s.adultGuess || !!s.adult;
+      adult.textContent = s.adult ? '消しました（もどす）' : 'この声を消す';
       adult.setAttribute('aria-pressed', !!s.adult);
-      adult.setAttribute('aria-label', s.adult ? 'この部分の音を消しています。押すと元に戻します' : 'この部分を大人の声として消す');
-      txt.disabled = !!s.adult; txt.placeholder = s.adult ? 'おとなの声（音を消しています）' : '聞こえたとおりに入力';
-      red.style.display = s.adult ? 'none' : '';
+      adult.setAttribute('aria-label', s.adult ? 'この声は消しています。押すと元に戻します' : 'この部分の声を消す');
+      txt.disabled = !!s.adult; txt.placeholder = s.adult ? 'この声は消しています' : '聞こえたとおりに入力';
     };
     adult.onclick = () => { s.adult = !s.adult; paintAdult(); };
     paintAdult();
-    tm.append(a, sep, b, lbl, red, adult);
-    row.append(go, txt, del, tm);
+    tm.append(a, sep, b, lbl);
+    const act = document.createElement('div'); act.className = 'act';
+    act.append(adult, guess);
+    row.append(go, txt, del, tm, act);
     sl.append(row);
     s._input = txt;
   }
@@ -1347,7 +1320,7 @@ async function autoSubs(){
     state.subs.push({start:a, end:b, text:'', adultGuess}); added++; if (adultGuess) guessed++;
   }
   renderLists();
-  msg(added + 'か所見つけました。' + (guessed ? `低い声（大人の声かも）が${guessed}か所あります。消すときは「おとなの声かも」を押してください。` : '') + '1つめを再生します。', 'subMsg');
+  msg(added + 'か所見つけました。' + (guessed ? `低い声（大人の声かも）が${guessed}か所あります。入れたくない声は「この声を消す」を押してください。` : '') + '1つめを再生します。', 'subMsg');
   const first = state.subs.findIndex(s => !s.text.trim() && !s.adult && !s.adultGuess);
   if (first >= 0) playSub(first);
 }
@@ -1447,7 +1420,6 @@ function wire(){
     if (actx && !exporting && !scanning){ outGain.gain.setValueAtTime(0, actx.currentTime); actx.suspend().catch(()=>{}); }
   };
   video.onended = syncPlayBtn;
-  document.addEventListener('selectionchange', () => { const el = document.activeElement; if (el && el._keepSel) el._keepSel(); });
   $('sizeBtn').onclick = () => {
     const big = document.querySelector('.stageCol').classList.toggle('big');
     $('sizeBtn').textContent = big ? 'プレビューを小さく' : 'プレビューを大きく';
