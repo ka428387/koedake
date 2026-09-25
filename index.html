@@ -33,6 +33,8 @@
 }
 *,*::before,*::after{box-sizing:inherit}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
+/* 時計の後ろに下の内容が透けないよう、画面の上端に背景色の帯を置く */
+body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:6}
 body{margin:0;background:var(--bg);color:var(--ink);
   font-family:"Zen Maru Gothic","Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;
   line-height:1.7;font-weight:500}
@@ -41,8 +43,11 @@ header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:4px 0 20
 header h1{margin:0;font-size:2.4rem;font-weight:900;letter-spacing:.04em;line-height:1.1}
 header p{margin:0;color:var(--muted);font-size:.95rem}
 body:not(.pro-on) .pro{display:none}
-.gear{margin-left:auto;align-self:center;width:40px;height:40px;padding:0;font-size:1.25rem;line-height:1;display:grid;place-items:center}
-.settings{background:var(--card);border:1.5px solid var(--line);border-radius:18px;padding:14px 16px 4px;margin:-8px 0 16px}
+.proRow{display:flex;align-items:center;gap:8px;margin:-10px 0 12px}
+.proHint{flex:1;min-width:0;text-align:left;background:none;border:none;padding:4px 0;font-size:.8rem;font-weight:500;color:var(--muted);line-height:1.5}
+.proHint b{color:var(--ink)}
+.gear{flex:none;width:36px;height:36px;padding:0;font-size:1.25rem;line-height:1;display:grid;place-items:center}
+.settings{background:var(--card);border:1.5px solid var(--line);border-radius:18px;padding:14px 16px 4px;margin:0 0 16px}
 .switch{display:flex;align-items:center;gap:10px;font-weight:700;cursor:pointer}
 .switch input{width:22px;height:22px;accent-color:var(--coral)}
 .settings .hint{margin:8px 0 10px}
@@ -58,7 +63,8 @@ body:not(.pro-on) .pro{display:none}
 #stage{display:block;height:min(604px,calc(100vh - 170px));min-height:320px;width:auto;max-width:100%;aspect-ratio:9/16;border-radius:28px;
   background:#BFE3F5;box-shadow:0 14px 34px rgba(37,49,59,.18)}
 @media(max-width:879px){
-  .stageCol{position:sticky;top:0;z-index:5;background:var(--bg);margin:0 -16px;padding:calc(env(safe-area-inset-top,0px) + 8px) 16px 8px;box-shadow:0 8px 12px -10px rgba(37,49,59,.35);
+  /* 上に貼りつくのは時計の下から。時計の下の余白を常に空けておくと、いちばん上のときに大きな空白になる */
+  .stageCol{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);margin:0 -16px;padding:8px 16px 8px;box-shadow:0 8px 12px -10px rgba(37,49,59,.35);
     flex-direction:row;justify-content:center;align-items:center;gap:12px}
   #stage{width:auto;height:min(20vh,170px);min-height:0;border-radius:14px;box-shadow:0 4px 12px rgba(37,49,59,.16);flex:none}
   .stageCol.big #stage{height:min(40vh,360px)}
@@ -168,8 +174,11 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
     <h1>ぱぺとーく</h1>
     <p>子どもの声はそのままに、顔は出さずに。</p>
     <span class="badge">試作版</span>
-    <button type="button" class="gear" id="gearBtn" aria-label="設定" aria-expanded="false" aria-controls="settings">⚙︎</button>
   </header>
+  <div class="proRow">
+    <button type="button" class="proHint" id="proHint" aria-controls="settings"></button>
+    <button type="button" class="gear" id="gearBtn" aria-label="設定" aria-expanded="false" aria-controls="settings">⚙︎</button>
+  </div>
   <div class="settings" id="settings" hidden>
     <label class="switch"><input type="checkbox" id="proMode"><span>こだわりモード</span></label>
     <p class="hint">字幕・親の声を消す・名前などを消す（ないしょ）・タイトルが使えるようになります。ふだんはオフのままで大丈夫です。</p>
@@ -351,6 +360,7 @@ function setPro(on){
   proOn = !!on;
   document.body.classList.toggle('pro-on', proOn);
   $('exportNum').textContent = proOn ? '5' : '3';
+  $('proHint').innerHTML = proOn ? '<b>こだわりモード：オン</b>（字幕・親の声を消す・ないしょ・タイトル）' : '字幕を付けたり親の声を消したりは、⚙︎ の「こだわりモード」でできます';
 }
 let hasMedia = false, exporting = false, cancelExport = false;
 let lastBlob = null, lastExt = 'mp4';
@@ -1446,7 +1456,7 @@ function wire(){
   sk.oninput = () => { seeking = true; video.currentTime = parseFloat(sk.value); };
   sk.onchange = () => { seeking = false; };
   $('title').oninput = e => { state.title = e.target.value; };
-  $('gearBtn').onclick = () => { const open = $('settings').hidden; $('settings').hidden = !open; $('gearBtn').setAttribute('aria-expanded', open); };
+  $('gearBtn').onclick = $('proHint').onclick = () => { const open = $('settings').hidden; $('settings').hidden = !open; $('gearBtn').setAttribute('aria-expanded', open); };
   $('proMode').checked = proOn;
   $('proMode').onchange = () => { setPro($('proMode').checked); try { localStorage.setItem('papetalk-pro', proOn ? '1' : '0'); } catch(e){} };
   setPro(proOn);
