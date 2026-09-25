@@ -46,7 +46,7 @@ body:not(.pro-on) .pro{display:none}
 /* 作り方のタブ：しんぷる／こだわり。選んでいる方はやさしい黄色、選んでいない方は薄い灰色の文字で、ひと目で違いがわかるように */
 .modeTabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;background:var(--field);border:1.5px solid var(--line);border-radius:999px;margin:-8px 0 6px;max-width:420px}
 .modeTabs button{border:none;background:transparent;border-radius:999px;padding:8px 0;font-size:.95rem;font-weight:500;color:var(--muted);opacity:.7}
-.modeTabs button[aria-selected="true"]{background:var(--tabOn);color:var(--ink);font-weight:700;opacity:1;box-shadow:0 1px 4px rgba(37,49,59,.12)}
+.modeTabs button[aria-selected="true"]{background:var(--tabOn);color:var(--ink);font-weight:900;opacity:1;box-shadow:0 1px 4px rgba(37,49,59,.12)}
 .modeNote{margin:0 0 12px 4px;font-size:.8rem;color:var(--muted)}
 .badge{font-size:.75rem;border:1.5px solid var(--line);border-radius:999px;padding:1px 10px;color:var(--muted)}
 .layout{display:grid;gap:24px}
@@ -65,6 +65,10 @@ body:not(.pro-on) .pro{display:none}
     flex-direction:row;justify-content:center;align-items:center;gap:12px}
   #stage{width:auto;height:min(20vh,170px);min-height:0;border-radius:14px;box-shadow:0 4px 12px rgba(37,49,59,.16);flex:none}
   .stageCol.big #stage{height:min(40vh,360px)}
+  /* 大きく見るときは、プレビューの下に操作を並べる（横に置くと再生バーがとても短くなる） */
+  .stageCol.big{flex-direction:column;gap:8px}
+  .stageCol.big .side{max-width:420px;width:100%}
+  .stageCol.big .sizeBtn{align-self:center}
   .side{flex:1;min-width:0;max-width:300px;align-items:stretch;gap:8px}
   .transport{width:100%;flex-wrap:wrap;gap:6px 8px}
   .transport input[type=range]{min-width:0}
