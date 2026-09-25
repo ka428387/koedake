@@ -547,7 +547,7 @@ function drawSecret(c, x, y, now){
    papetalk-character/prototype.html と同じ動き（2026-09-25 取り込み）。数字や順番は試作のまま。
    違うのは：音は動画から取る（マイク・お試しの動きはない）、動画が止まっている間は試作の「待機・一時停止」、
    「ないしょ」「おとなの声」で消している間は声なしとして扱う、画面の大きさは本番の 720×1280 */
-const OB_A = {body_base:[676,562], body_banzai:[739,563], eye_normal:[185,110], eye_wow:[196,126], eye_half:[197,117], eye_sleep:[177,38],
+const OB_A = {body_base:[676,562], eye_normal:[185,110], eye_wow:[196,126], eye_half:[197,117], eye_sleep:[177,38],
   eye_happy:[190,42], eye_squint:[158,76], mouth_shut:[76,31], mouth_closed:[73,59], mouth_small:[63,75], mouth_mid:[75,126], mouth_big:[111,109],
   arm_normal:[179,77], arm_fold:[167,70], arm_fxwow:[163,95]};
 const OB_IMG = {}; let obLoaded = 0;
@@ -556,8 +556,7 @@ const obReady = Promise.all(Object.keys(OB_A).map(k => new Promise(res => {
 })));
 // 体ごとの配置（体画像のピクセル座標）
 const OB_LAY = {
-  base:  {headX:225, eye:[225,195], mouthTop:[222,262], arm:[225,410], fxwow:[560,20]},
-  banzai:{headX:368, eye:[368,205], mouthTop:[368,270], arm:null,      fxwow:[368,-70]}
+  base:  {headX:225, eye:[225,195], mouthTop:[222,262], arm:[225,410], fxwow:[560,20]}
 };
 const ob = {noiseFloor:.008, vol:0, pitchT:.45, voiced:false, silentFor:0, wasVoiced:false, onsets:[], lastLaugh:-9999, loudFor:0, wowUntil:0,
   mouth:'shut', mouthAt:0, nextBlink:performance.now()+2500, blinkUntil:0, lastT:performance.now(), running:false};
@@ -601,7 +600,8 @@ function obStep(now, playing, mute){
 }
 function obFace(now){
   const laughing = now - ob.lastLaugh < 1300;
-  if (laughing) return {body:'banzai', eye:(Math.floor(now/200) % 2) ? 'squint' : 'happy', mouth:'big', fx:null};
+  // 笑い：ばんざいの体は使わない（2026-09-25 佳澄さん）。いつもの体のまま、顔だけ笑う
+  if (laughing) return {body:'base', eye:(Math.floor(now/200) % 2) ? 'squint' : 'happy', mouth:'big', arm:'normal', fx:null};
   if (now < ob.wowUntil) return {body:'base', eye:'wow', mouth:ob.voiced ? ob.mouth : 'small', arm:'normal', fx:'fxwow'};
   if (!ob.running) return {body:'base', eye:now < ob.blinkUntil ? 'sleep' : 'normal', mouth:'shut', arm:'normal'};
   if (ob.silentFor > 6) return {body:'base', eye:'sleep', mouth:'shut', arm:'fold'};
