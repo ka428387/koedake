@@ -43,10 +43,10 @@ header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:4px 0 20
 header h1{margin:0;font-size:2.4rem;font-weight:900;letter-spacing:.04em;line-height:1.1}
 header p{margin:0;color:var(--muted);font-size:.95rem}
 body:not(.pro-on) .pro{display:none}
-/* 作り方のタブ：しんぷる／こだわり */
+/* 作り方のタブ：シンプル／こだわり。選んでいる方は黄色、選んでいない方は薄い灰色の文字で、ひと目で違いがわかるように */
 .modeTabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;background:var(--field);border:1.5px solid var(--line);border-radius:999px;margin:-8px 0 6px;max-width:420px}
-.modeTabs button{border:none;background:transparent;border-radius:999px;padding:8px 0;font-size:.95rem;color:var(--muted)}
-.modeTabs button[aria-selected="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 4px rgba(37,49,59,.15)}
+.modeTabs button{border:none;background:transparent;border-radius:999px;padding:8px 0;font-size:.95rem;font-weight:500;color:var(--muted);opacity:.7}
+.modeTabs button[aria-selected="true"]{background:var(--sun);color:#25313B;font-weight:900;opacity:1;box-shadow:0 2px 6px rgba(37,49,59,.18)}
 .modeNote{margin:0 0 12px 4px;font-size:.8rem;color:var(--muted)}
 .badge{font-size:.75rem;border:1.5px solid var(--line);border-radius:999px;padding:1px 10px;color:var(--muted)}
 .layout{display:grid;gap:24px}
@@ -173,7 +173,7 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
     <span class="badge">試作版</span>
   </header>
   <div class="modeTabs" role="tablist" aria-label="作り方">
-    <button type="button" role="tab" id="tabSimple" aria-selected="true">しんぷる</button>
+    <button type="button" role="tab" id="tabSimple" aria-selected="true">シンプル</button>
     <button type="button" role="tab" id="tabPro" aria-selected="false">こだわり</button>
   </div>
   <p class="modeNote" id="modeNote"></p>
@@ -347,7 +347,7 @@ const FONT = '"Zen Maru Gothic","Hiragino Maru Gothic ProN","Hiragino Sans",sans
 
 const state = { chara:'obake', bg:BGS[0], title:'', subs:[], beeps:[], trimStart:0, trimEnd:0 };
 let endResolver = null, playFrom = 0;
-// 作り方のタブ「こだわり」（字幕・親の声を消す・ないしょ）。「しんぷる」のときは画面に出さず、書き出しにも使わない。タイトルはどちらでも使える
+// 作り方のタブ「こだわり」（字幕・親の声を消す・ないしょ）。「シンプル」のときは画面に出さず、書き出しにも使わない。タイトルはどちらでも使える
 let proOn = false;
 try { proOn = localStorage.getItem('papetalk-pro') === '1'; } catch(e){}
 function setPro(on){
@@ -553,7 +553,7 @@ function drawSecret(c, x, y, now){
    違うのは：音は動画から取る（マイク・お試しの動きはない）、動画が止まっている間は試作の「待機・一時停止」、
    「ないしょ」「おとなの声」で消している間は声なしとして扱う、画面の大きさは本番の 720×1280 */
 const OB_A = {body_base:[676,562], eye_normal:[185,110], eye_wow:[196,126], eye_half:[197,117], eye_sleep:[177,38],
-  eye_happy:[190,42], eye_squint:[158,76], mouth_shut:[76,31], mouth_closed:[73,59], mouth_small:[63,75], mouth_mid:[75,126], mouth_big:[111,109],
+  mouth_shut:[76,31], mouth_small:[63,75], mouth_mid:[75,126], mouth_big:[111,109],
   arm_normal:[179,77], arm_fold:[167,70], arm_fxwow:[163,95]};
 const OB_IMG = {}; let obLoaded = 0;
 const obReady = Promise.all(Object.keys(OB_A).map(k => new Promise(res => {
@@ -583,7 +583,8 @@ function obRead(){
   const f = v ? obDetectPitch(obBuf, actx.sampleRate) : 0;
   return {voiced:v, level:lv, freq:f};
 }
-function obPickMouth(){ const v = ob.vol; if (v < .08) return 'shut'; if (v < .25) return 'closed'; if (v < .45) return 'small'; if (v < .65) return 'mid'; return 'big'; }
+// □の口は使わない（2026-09-25 佳澄さん）。試作で □ だった小さい声は ○ に
+function obPickMouth(){ const v = ob.vol; if (v < .08) return 'shut'; if (v < .45) return 'small'; if (v < .65) return 'mid'; return 'big'; }
 // 毎コマ。now はミリ秒、playing は動画が進んでいるか、mute は消している区間か
 function obStep(now, playing, mute){
   const dt = Math.min(.05, (now - ob.lastT)/1000); ob.lastT = now;
@@ -606,12 +607,13 @@ function obStep(now, playing, mute){
 function obFace(now){
   const laughing = now - ob.lastLaugh < 1300;
   // 笑い：ばんざいの体は使わない（2026-09-25 佳澄さん）。いつもの体のまま、顔だけ笑う
-  if (laughing) return {body:'base', eye:(Math.floor(now/200) % 2) ? 'squint' : 'happy', mouth:'big', arm:'normal', fx:null};
+  // ＞＜・＾＾の目は使わない（2026-09-25 佳澄さん）。笑いはいつもの目＋大きな口＋小さく弾む
+  if (laughing) return {body:'base', eye:now < ob.blinkUntil ? 'sleep' : 'normal', mouth:'big', arm:'normal', fx:null};
   if (now < ob.wowUntil) return {body:'base', eye:'wow', mouth:ob.voiced ? ob.mouth : 'small', arm:'normal', fx:'fxwow'};
   if (!ob.running) return {body:'base', eye:now < ob.blinkUntil ? 'sleep' : 'normal', mouth:'shut', arm:'normal'};
   if (ob.silentFor > 6) return {body:'base', eye:'sleep', mouth:'shut', arm:'fold'};
   if (ob.silentFor > 1.5) return {body:'base', eye:now < ob.blinkUntil ? 'sleep' : 'half', mouth:'shut', arm:'fold'};
-  const eye = now < ob.blinkUntil ? 'sleep' : (ob.voiced && ob.pitchT > .78 ? 'happy' : 'normal');
+  const eye = now < ob.blinkUntil ? 'sleep' : 'normal';  // 高い声のにっこり目（＾＾）は使わない
   return {body:'base', eye, mouth:ob.mouth, arm:'normal'};
 }
 function obPart(c, key, x, y, center){
