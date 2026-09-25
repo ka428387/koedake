@@ -15,7 +15,7 @@
 <style>
 :root{
   --bg:#EEF4F8; --ink:#25313B; --muted:#5C6B77; --card:#FFFFFF; --line:#D6E1E9;
-  --field:#F5F8FA; --sun:#FFC93C; --coral:#D94B3C; --focus:#2E7FB8;
+  --field:#F5F8FA; --sun:#FFC93C; --tabOn:#FFE9AE; --coral:#D94B3C; --focus:#2E7FB8;
   color-scheme:light;
   box-sizing:border-box;
   padding-top:env(safe-area-inset-top,0px);
@@ -24,12 +24,12 @@
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
     --bg:#162029; --ink:#E8F0F5; --muted:#9DB0BE; --card:#1F2B35; --line:#33434F;
-    --field:#18232C; --coral:#FF7F70; --focus:#7CC1F0; color-scheme:dark;
+    --field:#18232C; --tabOn:#4A4128; --coral:#FF7F70; --focus:#7CC1F0; color-scheme:dark;
   }
 }
 :root[data-theme="dark"]{
   --bg:#162029; --ink:#E8F0F5; --muted:#9DB0BE; --card:#1F2B35; --line:#33434F;
-  --field:#18232C; --coral:#FF7F70; --focus:#7CC1F0; color-scheme:dark;
+  --field:#18232C; --tabOn:#4A4128; --coral:#FF7F70; --focus:#7CC1F0; color-scheme:dark;
 }
 *,*::before,*::after{box-sizing:inherit}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
@@ -43,10 +43,10 @@ header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:4px 0 20
 header h1{margin:0;font-size:2.4rem;font-weight:900;letter-spacing:.04em;line-height:1.1}
 header p{margin:0;color:var(--muted);font-size:.95rem}
 body:not(.pro-on) .pro{display:none}
-/* 作り方のタブ：シンプル／こだわり。選んでいる方は黄色、選んでいない方は薄い灰色の文字で、ひと目で違いがわかるように */
+/* 作り方のタブ：しんぷる／こだわり。選んでいる方はやさしい黄色、選んでいない方は薄い灰色の文字で、ひと目で違いがわかるように */
 .modeTabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;background:var(--field);border:1.5px solid var(--line);border-radius:999px;margin:-8px 0 6px;max-width:420px}
 .modeTabs button{border:none;background:transparent;border-radius:999px;padding:8px 0;font-size:.95rem;font-weight:500;color:var(--muted);opacity:.7}
-.modeTabs button[aria-selected="true"]{background:var(--sun);color:#25313B;font-weight:900;opacity:1;box-shadow:0 2px 6px rgba(37,49,59,.18)}
+.modeTabs button[aria-selected="true"]{background:var(--tabOn);color:var(--ink);font-weight:700;opacity:1;box-shadow:0 1px 4px rgba(37,49,59,.12)}
 .modeNote{margin:0 0 12px 4px;font-size:.8rem;color:var(--muted)}
 .badge{font-size:.75rem;border:1.5px solid var(--line);border-radius:999px;padding:1px 10px;color:var(--muted)}
 .layout{display:grid;gap:24px}
@@ -173,7 +173,7 @@ button.line{background:#06C755;color:#fff;border-color:transparent}
     <span class="badge">試作版</span>
   </header>
   <div class="modeTabs" role="tablist" aria-label="作り方">
-    <button type="button" role="tab" id="tabSimple" aria-selected="true">シンプル</button>
+    <button type="button" role="tab" id="tabSimple" aria-selected="true">しんぷる</button>
     <button type="button" role="tab" id="tabPro" aria-selected="false">こだわり</button>
   </div>
   <p class="modeNote" id="modeNote"></p>
@@ -347,7 +347,7 @@ const FONT = '"Zen Maru Gothic","Hiragino Maru Gothic ProN","Hiragino Sans",sans
 
 const state = { chara:'obake', bg:BGS[0], title:'', subs:[], beeps:[], trimStart:0, trimEnd:0 };
 let endResolver = null, playFrom = 0;
-// 作り方のタブ「こだわり」（字幕・親の声を消す・ないしょ）。「シンプル」のときは画面に出さず、書き出しにも使わない。タイトルはどちらでも使える
+// 作り方のタブ「こだわり」（字幕・親の声を消す・ないしょ）。「しんぷる」のときは画面に出さず、書き出しにも使わない。タイトルはどちらでも使える
 let proOn = false;
 try { proOn = localStorage.getItem('papetalk-pro') === '1'; } catch(e){}
 function setPro(on){
@@ -553,7 +553,7 @@ function drawSecret(c, x, y, now){
    違うのは：音は動画から取る（マイク・お試しの動きはない）、動画が止まっている間は試作の「待機・一時停止」、
    「ないしょ」「おとなの声」で消している間は声なしとして扱う、画面の大きさは本番の 720×1280 */
 const OB_A = {body_base:[676,562], eye_normal:[185,110], eye_wow:[196,126], eye_half:[197,117], eye_sleep:[177,38],
-  mouth_shut:[76,31], mouth_small:[63,75], mouth_mid:[75,126], mouth_big:[111,109],
+  mouth_shut:[76,31], mouth_small:[63,75], mouth_mid:[75,126],
   arm_normal:[179,77], arm_fold:[167,70], arm_fxwow:[163,95]};
 const OB_IMG = {}; let obLoaded = 0;
 const obReady = Promise.all(Object.keys(OB_A).map(k => new Promise(res => {
@@ -584,7 +584,8 @@ function obRead(){
   return {voiced:v, level:lv, freq:f};
 }
 // □の口は使わない（2026-09-25 佳澄さん）。試作で □ だった小さい声は ○ に
-function obPickMouth(){ const v = ob.vol; if (v < .08) return 'shut'; if (v < .45) return 'small'; if (v < .65) return 'mid'; return 'big'; }
+// 大きく開いた口（big）も使わない（2026-09-25 佳澄さん）。大きな声は縦長の口まで
+function obPickMouth(){ const v = ob.vol; if (v < .08) return 'shut'; if (v < .45) return 'small'; return 'mid'; }
 // 毎コマ。now はミリ秒、playing は動画が進んでいるか、mute は消している区間か
 function obStep(now, playing, mute){
   const dt = Math.min(.05, (now - ob.lastT)/1000); ob.lastT = now;
@@ -608,7 +609,7 @@ function obFace(now){
   const laughing = now - ob.lastLaugh < 1300;
   // 笑い：ばんざいの体は使わない（2026-09-25 佳澄さん）。いつもの体のまま、顔だけ笑う
   // ＞＜・＾＾の目は使わない（2026-09-25 佳澄さん）。笑いはいつもの目＋大きな口＋小さく弾む
-  if (laughing) return {body:'base', eye:now < ob.blinkUntil ? 'sleep' : 'normal', mouth:'big', arm:'normal', fx:null};
+  if (laughing) return {body:'base', eye:now < ob.blinkUntil ? 'sleep' : 'normal', mouth:'mid', arm:'normal', fx:null};
   if (now < ob.wowUntil) return {body:'base', eye:'wow', mouth:ob.voiced ? ob.mouth : 'small', arm:'normal', fx:'fxwow'};
   if (!ob.running) return {body:'base', eye:now < ob.blinkUntil ? 'sleep' : 'normal', mouth:'shut', arm:'normal'};
   if (ob.silentFor > 6) return {body:'base', eye:'sleep', mouth:'shut', arm:'fold'};
