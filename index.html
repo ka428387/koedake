@@ -312,6 +312,7 @@ const video = document.getElementById('src');
 const $ = id => document.getElementById(id);
 
 const CHARAS = [
+  {id:'obake',  name:'おばけ'},
   {id:'kuma',   name:'くま'},
   {id:'usagi',  name:'うさぎ'},
   {id:'neko',   name:'ねこ'},
@@ -325,6 +326,7 @@ for (const ch of ART_CHARAS) CHARAS.push({id: ch.id, name: String(ch.name || ch.
 function artChara(id){ return ART_CHARAS.find(ch => ch.id === id); }
 // 「ないしょ」吹き出しの置き場所。Codex 版のキャラは secretAt: {x, y}（キャラの中心から見た位置）で変えられる
 function secretPos(ac){
+  if (state.chara === 'obake') return [190, 290];  // おばけは頭が左寄りで大きいので、左上に出す
   const p = ac && ac.secretAt;
   if (p && isFinite(p.x) && isFinite(p.y)) return [W/2 + Math.max(-240, Math.min(240, p.x)), 600 + Math.max(-340, Math.min(300, p.y))];
   return [520, 330];
@@ -340,7 +342,7 @@ const BGS = ['#BFE3F5','#FFE3A3','#CDEBC8','#F9D3D9','#DCD3F2'];
 const INK = '#25313B', HI = '#D94B3C';
 const FONT = '"Zen Maru Gothic","Hiragino Maru Gothic ProN","Hiragino Sans",sans-serif';
 
-const state = { chara:'kuma', bg:BGS[0], title:'', subs:[], beeps:[], trimStart:0, trimEnd:0 };
+const state = { chara:'obake', bg:BGS[0], title:'', subs:[], beeps:[], trimStart:0, trimEnd:0 };
 let endResolver = null, playFrom = 0;
 // こだわりモード（字幕・親の声を消す・ないしょ・タイトル）。オフのときは画面に出さず、書き出しにも使わない
 let proOn = false;
@@ -354,19 +356,22 @@ let hasMedia = false, exporting = false, cancelExport = false;
 let lastBlob = null, lastExt = 'mp4';
 
 /* ---------- audio graph ---------- */
-let actx, analyser, mainGain, beepGain, outGain, streamDest, tbuf;
+let actx, analyser, analyser2, obBuf, mainGain, beepGain, outGain, streamDest, tbuf;
 function ensureAudio(){
   if (actx) return;
   actx = new (window.AudioContext || window.webkitAudioContext)();
   const src = actx.createMediaElementSource(video);
   analyser = actx.createAnalyser(); analyser.fftSize = 1024;
+  // おばけ用：試作（prototype.html）と同じ設定の聞き取り口
+  analyser2 = actx.createAnalyser(); analyser2.fftSize = 2048; analyser2.smoothingTimeConstant = .2;
+  obBuf = new Float32Array(analyser2.fftSize);
   tbuf = new Float32Array(analyser.fftSize);
   mainGain = actx.createGain();
   beepGain = actx.createGain(); beepGain.gain.value = 0;
   const osc = actx.createOscillator(); osc.type = 'sine'; osc.frequency.value = 1000;
   osc.connect(beepGain); osc.start();
   outGain = actx.createGain();
-  src.connect(analyser); src.connect(mainGain);
+  src.connect(analyser); src.connect(analyser2); src.connect(mainGain);
   mainGain.connect(outGain); beepGain.connect(outGain);
   outGain.connect(actx.destination);
   streamDest = actx.createMediaStreamDestination();
@@ -386,6 +391,7 @@ function ellipse(c, x, y, rx, ry){ c.beginPath(); c.ellipse(x, y, Math.max(rx,.1
 function drawChara(c, kind, cx, cy, r, open, blink){
   const ac = artChara(kind);
   if (ac){ c.save(); c.translate(cx, cy); drawArt(c, ac, {r, open, level:open, blink, now:performance.now()/1000, hush:false, thumb:true}); c.restore(); return; }
+  if (kind === 'obake'){ drawObakeThumb(c, cx, cy, r); return; }
   if (kind === 'kimochi'){ drawBlob(c, cx, cy, r*0.85, KM_CALM, 0.03, 0, 1, 1); return; }
   const col = {kuma:'#C8905B', usagi:'#FFFFFF', neko:'#A3ACB6', hiyoko:'#FFD84D'}[kind];
   const inner = {kuma:'#EBC79E', usagi:'#F7B7C3', neko:'#F4B8C0', hiyoko:'#FFE994'}[kind];
@@ -535,6 +541,110 @@ function drawSecret(c, x, y, now){
   c.font = `700 46px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = INK;
   c.fillText('ないしょ', 0, 2);
   c.restore(); c.textAlign = 'start';
+}
+
+/* ---------- おばけ（ぱぺとーくの口パクキャラ） ----------
+   papetalk-character/prototype.html と同じ動き（2026-09-25 取り込み）。数字や順番は試作のまま。
+   違うのは：音は動画から取る（マイク・お試しの動きはない）、動画が止まっている間は試作の「待機・一時停止」、
+   「ないしょ」「おとなの声」で消している間は声なしとして扱う、画面の大きさは本番の 720×1280 */
+const OB_A = {body_base:[676,562], body_banzai:[739,563], eye_normal:[185,110], eye_wow:[196,126], eye_half:[197,117], eye_sleep:[177,38],
+  eye_happy:[190,42], eye_squint:[158,76], mouth_shut:[76,31], mouth_closed:[73,59], mouth_small:[63,75], mouth_mid:[75,126], mouth_big:[111,109],
+  arm_normal:[179,77], arm_fold:[167,70], arm_fxwow:[163,95]};
+const OB_IMG = {}; let obLoaded = 0;
+const obReady = Promise.all(Object.keys(OB_A).map(k => new Promise(res => {
+  const im = new Image(); im.onload = () => { obLoaded++; res(); }; im.onerror = () => res(); im.src = 'assets/characters/obake/' + k + '.png'; OB_IMG[k] = im;
+})));
+// 体ごとの配置（体画像のピクセル座標）
+const OB_LAY = {
+  base:  {headX:225, eye:[225,195], mouthTop:[222,262], arm:[225,410], fxwow:[560,20]},
+  banzai:{headX:368, eye:[368,205], mouthTop:[368,270], arm:null,      fxwow:[368,-70]}
+};
+const ob = {noiseFloor:.008, vol:0, pitchT:.45, voiced:false, silentFor:0, wasVoiced:false, onsets:[], lastLaugh:-9999, loudFor:0, wowUntil:0,
+  mouth:'shut', mouthAt:0, nextBlink:performance.now()+2500, blinkUntil:0, lastT:performance.now(), running:false};
+function obDetectPitch(b, sr){
+  const N = 1024, minLag = Math.floor(sr/1000), maxLag = Math.floor(sr/90); let e = 0;
+  for (let i=0;i<N;i++) e += b[i]*b[i];
+  if (e < 1e-4) return 0;
+  let best = 0, bc = 0;
+  for (let lag=minLag; lag<=maxLag; lag++){ let c = 0; for (let i=0;i<N;i++) c += b[i]*b[i+lag]; c /= e; if (c > bc){ bc = c; best = lag; } }
+  return bc > .45 ? sr/best : 0;
+}
+function obRead(){
+  analyser2.getFloatTimeDomainData(obBuf);
+  let s = 0; for (let i=0;i<obBuf.length;i++) s += obBuf[i]*obBuf[i];
+  const rms = Math.sqrt(s/obBuf.length);
+  const th = Math.max(.012, ob.noiseFloor*2.6), v = rms > th;
+  if (!v) ob.noiseFloor = ob.noiseFloor*.99 + rms*.01;
+  const lv = v ? Math.min(1, Math.sqrt((rms - th)/.18)) : 0;
+  const f = v ? obDetectPitch(obBuf, actx.sampleRate) : 0;
+  return {voiced:v, level:lv, freq:f};
+}
+function obPickMouth(){ const v = ob.vol; if (v < .08) return 'shut'; if (v < .25) return 'closed'; if (v < .45) return 'small'; if (v < .65) return 'mid'; return 'big'; }
+// 毎コマ。now はミリ秒、playing は動画が進んでいるか、mute は消している区間か
+function obStep(now, playing, mute){
+  const dt = Math.min(.05, (now - ob.lastT)/1000); ob.lastT = now;
+  ob.running = playing;
+  if (playing && analyser2){
+    const r = mute ? {voiced:false, level:0, freq:0} : obRead();
+    if (r.voiced && !ob.voiced && ob.silentFor > 6) ob.wowUntil = now + 600;  // 寝ていたら驚いて起きる
+    ob.voiced = r.voiced; ob.vol += (r.level - ob.vol) * (r.level > ob.vol ? .6 : .3);
+    if (r.freq > 0){ const t = (Math.log2(r.freq) - Math.log2(150))/(Math.log2(900) - Math.log2(150)); ob.pitchT += (Math.max(0, Math.min(1, t)) - ob.pitchT)*.2; }
+    if (ob.voiced && !ob.wasVoiced) ob.onsets.push(now);
+    ob.wasVoiced = ob.voiced; ob.onsets = ob.onsets.filter(t => now - t < 1400);
+    if (ob.onsets.length >= 3 && ob.pitchT > .42 && now - ob.lastLaugh > 1800){ ob.lastLaugh = now; ob.onsets = []; }
+    if (ob.voiced){ ob.silentFor = 0; ob.loudFor = ob.vol > .75 ? ob.loudFor + dt : 0; if (ob.loudFor > .25 && now > ob.wowUntil) ob.wowUntil = now + 700; }
+    else ob.silentFor += dt;
+    const want = ob.voiced ? obPickMouth() : 'shut';
+    if (want !== ob.mouth && now - ob.mouthAt > 70){ ob.mouth = want; ob.mouthAt = now; }
+  }
+  if (now > ob.nextBlink){ ob.blinkUntil = now + 130; ob.nextBlink = now + 2000 + Math.random()*3500; }
+}
+function obFace(now){
+  const laughing = now - ob.lastLaugh < 1300;
+  if (laughing) return {body:'banzai', eye:(Math.floor(now/200) % 2) ? 'squint' : 'happy', mouth:'big', fx:null};
+  if (now < ob.wowUntil) return {body:'base', eye:'wow', mouth:ob.voiced ? ob.mouth : 'small', arm:'normal', fx:'fxwow'};
+  if (!ob.running) return {body:'base', eye:now < ob.blinkUntil ? 'sleep' : 'normal', mouth:'shut', arm:'normal'};
+  if (ob.silentFor > 6) return {body:'base', eye:'sleep', mouth:'shut', arm:'fold'};
+  if (ob.silentFor > 1.5) return {body:'base', eye:now < ob.blinkUntil ? 'sleep' : 'half', mouth:'shut', arm:'fold'};
+  const eye = now < ob.blinkUntil ? 'sleep' : (ob.voiced && ob.pitchT > .78 ? 'happy' : 'normal');
+  return {body:'base', eye, mouth:ob.mouth, arm:'normal'};
+}
+function obPart(c, key, x, y, center){
+  const im = OB_IMG[key], [w, h] = OB_A[key];
+  if (center) c.drawImage(im, x - w/2, y - h/2, w, h); else c.drawImage(im, x - w/2, y, w, h);
+}
+function obBody(c, f){
+  const L = OB_LAY[f.body], bk = 'body_' + f.body, [bw, bh] = OB_A[bk];
+  c.translate(-L.headX, -bh);
+  c.drawImage(OB_IMG[bk], 0, 0, bw, bh);
+  if (f.arm && L.arm) obPart(c, 'arm_' + f.arm, L.arm[0], L.arm[1], true);
+  obPart(c, 'eye_' + f.eye, L.eye[0], L.eye[1], true);
+  obPart(c, 'mouth_' + f.mouth, L.mouthTop[0], L.mouthTop[1], false);
+  if (f.fx && L[f.fx]) obPart(c, 'arm_' + f.fx, L[f.fx][0], L[f.fx][1], true);
+}
+// 本番の画面に描く（試作の render と同じ計算を 720×1280 で）
+function drawObake(c, now){
+  if (obLoaded < Object.keys(OB_A).length) return;
+  const f = obFace(now);
+  const k = Math.min(W*.78/740, H*.5/560);
+  const cx = W/2, baseY = H*.46 + 280*k;
+  let sx = 1, sy = 1, oy = 0, rot = 0;
+  if (now - ob.lastLaugh < 1300){ oy = -Math.abs(Math.sin(now*.02))*40*k; }
+  else if (ob.running && ob.voiced){ sy = 1 + ob.vol*.08; sx = 1 - ob.vol*.04; rot = Math.sin(now*.008)*.025*ob.vol; }
+  else if (ob.silentFor > 6){ const b = Math.sin(now*.0018); sy = 1 + b*.025; sx = 1 - b*.012; }
+  else { const b = Math.sin(now*.003); sy = 1 + b*.01; }
+  c.fillStyle = 'rgba(60,70,80,.08)'; c.beginPath(); c.ellipse(cx + 40*k, baseY, 300*k*sx, 18*k, 0, 0, 6.28); c.fill();
+  c.save(); c.translate(cx, baseY + oy); c.rotate(rot); c.scale(k*sx, k*sy);
+  obBody(c, f);
+  c.restore();
+}
+// 一覧の小さな絵：待機の顔を枠に収める
+function drawObakeThumb(c, cx, cy, r){
+  if (obLoaded < Object.keys(OB_A).length) return;
+  const k = r*2.9/676, [bw, bh] = OB_A.body_base;
+  c.save(); c.translate(cx - (bw/2 - OB_LAY.base.headX)*k, cy + bh*k/2); c.scale(k, k);
+  obBody(c, {body:'base', eye:'normal', mouth:'shut', arm:'normal'});
+  c.restore();
 }
 
 /* ---------- きもち（生き物ではない、声で色と形が変わるもの） ---------- */
@@ -688,7 +798,8 @@ function render(now, t, level, inBeep){
   if (proOn) drawText(g, state.title, 200, 56, 600, 'top');
 
   const ac = artChara(state.chara);
-  if (state.chara === 'kimochi') drawKimochi(g, now, level);
+  if (state.chara === 'obake') drawObake(g, now*1000);
+  else if (state.chara === 'kimochi') drawKimochi(g, now, level);
   else if (ac){
     const bt = now % 3.7;
     g.save(); g.translate(W/2, 600);
@@ -758,6 +869,7 @@ function frameBody(ms){
     beepOn = mute;
   }
   if (state.chara === 'kimochi') updateKimochi(now, target, pitch, inBeep);
+  if (state.chara === 'obake') obStep(ms, hasMedia && !video.paused && !scanning, mute);
   render(now, t, level, inBeep);
   if (!seeking) $('seek').value = t;
   $('timeLbl').textContent = fmt(t);
@@ -776,6 +888,7 @@ function buildCharas(){
     const cc = c.getContext('2d');
     cc.fillStyle = '#F2F6F9'; cc.fillRect(0,0,144,144);
     drawChara(cc, ch.id, 72, 76, 44, 0, 1);
+    if (ch.id === 'obake') obReady.then(() => { cc.fillStyle = '#F2F6F9'; cc.fillRect(0,0,144,144); drawChara(cc, ch.id, 72, 76, 44, 0, 1); });
     if (ch.art) Promise.resolve(ART.ready).catch(()=>{}).then(() => { cc.fillStyle = '#F2F6F9'; cc.fillRect(0,0,144,144); drawChara(cc, ch.id, 72, 76, 44, 0, 1); });
     b.append(c, document.createTextNode(ch.name));
     b.onclick = () => { state.chara = ch.id; [...box.children].forEach(x => x.setAttribute('aria-pressed', x === b)); };
@@ -1438,7 +1551,7 @@ async function exportVideo(){
   const mime = pickMime();
   if (!mime || !cv.captureStream){ msg('このブラウザは動画の書き出しに対応していません。最新のChromeかSafariで試してください。'); return; }
   ensureAudio(); if (actx.state === 'suspended') await actx.resume();
-  try { await ART.ready; } catch(e){}  // Codex 版の画像を読み終えてから録画する
+  try { await ART.ready; await obReady; } catch(e){}  // Codex 版の画像を読み終えてから録画する
   video.pause();
   if (Math.abs(video.currentTime - state.trimStart) > 0.01){ video.currentTime = state.trimStart; await once(video, 'seeked'); }
   const vs = cv.captureStream(30);
